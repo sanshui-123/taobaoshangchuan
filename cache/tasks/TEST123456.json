@@ -1,0 +1,21 @@
+{
+  "productId": "TEST123456",
+  "createdAt": "2025-11-12T02:15:22.684Z",
+  "stepStatus": {
+    "0": "failed",
+    "1": "pending",
+    "2": "pending",
+    "3": "pending",
+    "4": "pending",
+    "5": "pending",
+    "6": "pending",
+    "7": "pending",
+    "8": "pending",
+    "9": "pending",
+    "10": "pending",
+    "11": "pending",
+    "12": "pending",
+    "13": "pending",
+    "14": "pending"
+  }
+}

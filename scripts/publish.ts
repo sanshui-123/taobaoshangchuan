@@ -1,0 +1,158 @@
+import { Command } from 'commander';
+import { StepId, StepContext, RunOptions, TaskCache } from './types';
+import { steps } from './steps';
+import { createStepLogger } from './utils/logger';
+import { loadTaskCache, saveTaskCache, updateStepStatus } from './utils/cache';
+
+const program = new Command();
+
+program
+  .name('publish')
+  .description('淘宝商品发布管线')
+  .requiredOption('-p, --product <id>', '商品ID')
+  .option('-s, --step <number>', '指定要执行的步骤（可多次使用）', (value: string, previous: number[] = []) => {
+    const stepId = parseInt(value);
+    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
+      throw new Error(`无效的步骤ID: ${value}`);
+    }
+    return previous ? [...previous, stepId] : [stepId];
+  })
+  .option('--from <number>', '起始步骤（包含）', (value: string) => {
+    const stepId = parseInt(value);
+    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
+      throw new Error(`无效的起始步骤: ${value}`);
+    }
+    return stepId;
+  })
+  .option('--to <number>', '结束步骤（包含）', (value: string) => {
+    const stepId = parseInt(value);
+    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
+      throw new Error(`无效的结束步骤: ${value}`);
+    }
+    return stepId;
+  });
+
+async function runSteps(options: RunOptions): Promise<void> {
+  const { product: productId } = options;
+
+  console.log(`\n🚀 开始执行商品发布流程 - ProductID: ${productId}`);
+  console.log('='.repeat(60));
+
+  // 加载或创建任务缓存
+  const taskCache = loadTaskCache(productId);
+
+  // 初始化步骤状态
+  const stepStatus: Record<StepId, 'pending' | 'done' | 'failed'> = {
+    0: taskCache.stepStatus[0] || 'pending',
+    1: taskCache.stepStatus[1] || 'pending',
+    2: taskCache.stepStatus[2] || 'pending',
+    3: taskCache.stepStatus[3] || 'pending',
+    4: taskCache.stepStatus[4] || 'pending',
+    5: taskCache.stepStatus[5] || 'pending',
+    6: taskCache.stepStatus[6] || 'pending',
+    7: taskCache.stepStatus[7] || 'pending',
+    8: taskCache.stepStatus[8] || 'pending',
+    9: taskCache.stepStatus[9] || 'pending',
+    10: taskCache.stepStatus[10] || 'pending',
+    11: taskCache.stepStatus[11] || 'pending',
+    12: taskCache.stepStatus[12] || 'pending',
+    13: taskCache.stepStatus[13] || 'pending',
+    14: taskCache.stepStatus[14] || 'pending'
+  };
+
+  // 确定要执行的步骤
+  let stepsToRun: StepId[] = [];
+  if (options.steps && options.steps.length > 0) {
+    // 指定了特定步骤
+    stepsToRun = options.steps as StepId[];
+  } else if (options.from !== undefined && options.to !== undefined) {
+    // 指定了范围
+    for (let i = options.from; i <= options.to; i++) {
+      stepsToRun.push(i as StepId);
+    }
+  } else {
+    // 执行所有步骤
+    for (let i = 0; i <= 14; i++) {
+      stepsToRun.push(i as StepId);
+    }
+  }
+
+  console.log(`\n📋 将执行步骤: ${stepsToRun.join(', ')}`);
+
+  // 创建步骤上下文
+  const createStepContext = (stepId: StepId): StepContext => {
+    const logger = createStepLogger(productId, stepId.toString());
+
+    return {
+      productId,
+      taskCache,
+      logger,
+      stepStatus,
+      async runStep(step: StepId): Promise<void> {
+        const stepHandler = steps[step];
+        if (!stepHandler) {
+          throw new Error(`未找到步骤 ${step} 的处理器`);
+        }
+        await stepHandler(this);
+      }
+    };
+  };
+
+  // 步骤前置钩子
+  const beforeStep = async (stepId: StepId): Promise<void> => {
+    console.log(`\n--- [Step ${stepId}] 开始 ---`);
+  };
+
+  // 步骤后置钩子
+  const afterStep = async (stepId: StepId, status: 'done' | 'failed', error?: Error): Promise<void> => {
+    // 更新状态
+    stepStatus[stepId] = status;
+    updateStepStatus(productId, stepId, status);
+
+    if (status === 'done') {
+      console.log(`✅ [Step ${stepId}] 完成`);
+    } else {
+      console.error(`❌ [Step ${stepId}] 失败: ${error?.message}`);
+    }
+
+    // 保存缓存
+    const currentCache = loadTaskCache(productId);
+    currentCache.stepStatus = stepStatus;
+    saveTaskCache(productId, currentCache);
+  };
+
+  // 执行步骤
+  for (const stepId of stepsToRun) {
+    try {
+      await beforeStep(stepId);
+
+      const ctx = createStepContext(stepId);
+      await ctx.runStep(stepId);
+
+      await afterStep(stepId, 'done');
+    } catch (error) {
+      await afterStep(stepId, 'failed', error as Error);
+      console.error(`\n💥 步骤 ${stepId} 执行失败，终止流程`);
+      process.exit(1);
+    }
+  }
+
+  console.log('\n🎉 所有步骤执行完成！');
+  console.log('\n📊 执行结果:');
+  for (const stepId of stepsToRun) {
+    const status = stepStatus[stepId];
+    const statusIcon = status === 'done' ? '✅' : status === 'failed' ? '❌' : '⏸️';
+    console.log(`  ${statusIcon} Step ${stepId}: ${status}`);
+  }
+}
+
+// 解析命令行参数并运行
+program.parse();
+
+const options = program.opts() as RunOptions;
+
+// 运行流程
+runSteps(options).catch((error) => {
+  console.error('\n💥 执行失败:', error);
+  process.exit(1);
+});

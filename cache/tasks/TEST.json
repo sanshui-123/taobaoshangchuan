@@ -1,0 +1,21 @@
+{
+  "productId": "TEST",
+  "createdAt": "2025-11-11T16:27:03.632Z",
+  "stepStatus": {
+    "0": "done",
+    "1": "done",
+    "2": "done",
+    "3": "done",
+    "4": "done",
+    "5": "done",
+    "6": "done",
+    "7": "done",
+    "8": "failed",
+    "9": "done",
+    "10": "done",
+    "11": "done",
+    "12": "done",
+    "13": "done",
+    "14": "done"
+  }
+}

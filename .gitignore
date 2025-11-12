@@ -1,0 +1,40 @@
+# 环境配置
+tb.env
+tb.env.local
+tb.env.*.local
+
+# 依赖
+node_modules/
+
+# 日志
+logs/
+*.log
+
+# 临时文件
+temp/
+tmp/
+
+# 存储状态
+storage/
+storageState.json
+
+# 资源文件
+assets/
+screenshots/
+
+# 报告
+reports/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 测试
+.env.test
+.env.local

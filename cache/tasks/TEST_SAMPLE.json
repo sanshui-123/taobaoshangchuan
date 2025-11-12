@@ -1,0 +1,56 @@
+{
+  "productId": "TEST_SAMPLE",
+  "productData": {
+    "titleCN": "测试商品标题",
+    "titleJP": "テスト商品タイトル",
+    "brand": "TEST_BRAND",
+    "articleNumber": "TEST-001",
+    "gender": "男女通用",
+    "colors": [
+      {
+        "colorName": "白色",
+        "colorCode": "#FFFFFF"
+      },
+      {
+        "colorName": "黑色",
+        "colorCode": "#000000"
+      }
+    ],
+    "sizes": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL",
+      "LL",
+      "2XL"
+    ],
+    "basePrice": 9900,
+    "baseStock": 100,
+    "detailCN": "这是一个测试商品的详细描述",
+    "detailJP": "これはテスト商品の詳細な説明です",
+    "images": [
+      "https://example.com/image1.jpg",
+      "https://example.com/image2.jpg"
+    ]
+  },
+  "stepStatus": {
+    "0": "done",
+    "1": "done",
+    "2": "done",
+    "3": "done",
+    "4": "failed",
+    "5": "done",
+    "6": "done",
+    "7": "done",
+    "8": "failed",
+    "9": "pending",
+    "10": "pending",
+    "11": "pending",
+    "12": "pending",
+    "13": "pending",
+    "14": "pending"
+  },
+  "createdAt": "2025-01-12T10:00:00.000Z",
+  "updatedAt": "2025-01-12T10:00:00.000Z"
+}
