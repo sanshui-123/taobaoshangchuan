@@ -450,4 +450,189 @@ function cleanFileName(name) {
     .substring(0, 50);
 }
 
-module.exports = { step0 };
+/**
+ * 批量处理多个商品（共享浏览器上下文）
+ * @param {string[]} productIds - 商品ID列表
+ */
+async function runBatch(productIds) {
+  const { createStepLogger } = require('../utils/logger');
+
+  console.log(`\n📦 开始批量处理 ${productIds.length} 个商品...`);
+
+  // 创建批量处理的日志记录器
+  const batchLogger = {
+    info: (msg) => console.log(`[BATCH] ${msg}`),
+    success: (msg) => console.log(`[BATCH] ✅ ${msg}`),
+    error: (msg) => console.log(`[BATCH] ❌ ${msg}`),
+    warn: (msg) => console.log(`[BATCH] ⚠️ ${msg}`)
+  };
+
+  // 共享一次飞书扫描
+  batchLogger.info('开始扫描飞书表格...');
+  const allRecords = await feishuClient.getAllRecords();
+  batchLogger.success(`获取到 ${allRecords.length} 条记录`);
+
+  // 初始化浏览器管理器（共享浏览器上下文）
+  const browserManager = require('../utils/browser-manager');
+
+  try {
+    // 获取浏览器管理器（这会确保浏览器已启动）
+    batchLogger.info('浏览器已准备就绪');
+  } catch (error) {
+    batchLogger.error(`浏览器初始化失败: ${error.message}`);
+    throw error;
+  }
+
+  // 批量处理结果统计
+  const results = [];
+
+  // 循环处理每个商品
+  for (let i = 0; i < productIds.length; i++) {
+    const productId = productIds[i];
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[${i + 1}/${productIds.length}] 处理商品: ${productId}`);
+    console.log(`${'='.repeat(80)}`);
+
+    try {
+      // 查找对应的记录
+      const record = allRecords.find(r => {
+        const pid = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+        if (Array.isArray(pid)) {
+          return pid.includes(productId);
+        } else {
+          return pid === productId;
+        }
+      });
+
+      if (!record) {
+        batchLogger.error(`未找到商品 ${productId} 的飞书记录`);
+        results.push({
+          productId,
+          success: false,
+          error: '未找到飞书记录',
+          status: null
+        });
+        continue;
+      }
+
+      // 创建单个商品的上下文
+      const ctx = {
+        productId,
+        feishuRecordId: record.record_id,
+        logger: {
+          info: (msg) => console.log(`  [${productId}] ${msg}`),
+          success: (msg) => console.log(`  [${productId}] ✅ ${msg}`),
+          error: (msg) => console.log(`  [${productId}] ❌ ${msg}`),
+          warn: (msg) => console.log(`  [${productId}] ⚠️ ${msg}`)
+        }
+      };
+
+      // 执行查重检查（复用现有逻辑，但不关闭浏览器）
+      await checkProductExistsAndUpdateStatus(record, ctx);
+
+      results.push({
+        productId,
+        success: true,
+        error: null,
+        status: 'processed'
+      });
+
+      // 添加短暂延迟，避免操作过快
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+    } catch (error) {
+      console.error(`  [${productId}] 处理失败: ${error.message}`);
+      results.push({
+        productId,
+        success: false,
+        error: error.message,
+        status: null
+      });
+
+      // 发生异常时继续下一个
+      continue;
+    }
+  }
+
+  // 输出批量处理结果摘要
+  console.log(`\n${'='.repeat(80)}`);
+  console.log('📊 批量处理结果摘要');
+  console.log(`${'='.repeat(80)}`);
+
+  const successCount = results.filter(r => r.success).length;
+  const failureCount = results.length - successCount;
+
+  console.log(`总计: ${results.length} 个商品`);
+  console.log(`成功: ${successCount} 个`);
+  console.log(`失败: ${failureCount} 个`);
+
+  if (failureCount > 0) {
+    console.log('\n失败列表:');
+    results
+      .filter(r => !r.success)
+      .forEach(r => {
+        console.log(`  - ${r.productId}: ${r.error}`);
+      });
+  }
+
+  console.log('\n🎉 批量处理完成！');
+
+  // 在开发模式下保持浏览器打开
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n📌 开发模式：保持浏览器窗口打开，按 Ctrl+C 退出');
+  } else {
+    // 生产模式下可以选择关闭浏览器
+    // await browserManager.close();
+  }
+}
+
+/**
+ * 检查商品存在并更新状态（从主逻辑中提取，避免重复初始化）
+ */
+async function checkProductExistsAndUpdateStatus(record, ctx) {
+  const { fields } = record;
+  const productIdField = fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+  const productId = Array.isArray(productIdField) ? productIdField[0] : productIdField;
+
+  // 获取当前状态
+  const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+  const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+  const pendingValue = process.env.FEISHU_STATUS_PENDING_VALUE || '待上传';
+  const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
+  const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+
+  // 强制执行查重
+  ctx.logger.info(`开始查重检查...`);
+
+  try {
+    // 检查商品是否已存在
+    const exists = await checkProductExists(productId);
+
+    if (exists) {
+      // 商品已存在，更新状态为"已上传到淘宝"
+      ctx.logger.success(`商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
+      await feishuClient.updateRecord(record.record_id, {
+        [statusField]: doneValue
+      });
+
+      // 更新步骤状态
+      updateStepStatus(productId, 0, 'done');
+    } else {
+      // 商品不存在，更新状态为"待上传"
+      ctx.logger.info(`商品 ${productId} 不存在于淘宝，更新状态为"${pendingValue}"`);
+      await feishuClient.updateRecord(record.record_id, {
+        [statusField]: pendingValue
+      });
+    }
+
+  } catch (checkError) {
+    // 查重异常，更新错误状态
+    ctx.logger.error(`查重失败: ${checkError.message}`);
+    await feishuClient.updateRecord(record.record_id, {
+      [statusField]: errorValue
+    });
+    throw new Error(`查重失败: ${checkError.message}`);
+  }
+}
+
+module.exports = { step0, runBatch };

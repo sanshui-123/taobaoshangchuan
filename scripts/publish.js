@@ -33,7 +33,8 @@ const program = new Command();
 program
   .name('publish')
   .description('淘宝商品发布管线')
-  .requiredOption('-p, --product <id>', '商品ID')
+  .option('-p, --product <id>', '商品ID（单个商品）')
+  .option('-b, --batch <ids>', '批量处理商品ID（用逗号分隔，例如：C25217104,C25216104）')
   .option('-s, --step <number>', '指定要执行的步骤（可多次使用）', (value, previous = []) => {
     const stepId = parseInt(value);
     if (isNaN(stepId) || stepId < 0 || stepId > 14) {
@@ -60,13 +61,43 @@ program
   .option('--screenshot', '每个步骤完成后自动截图');
 
 async function runSteps(options) {
-  const { product: productId } = options;
+  const { product: productId, batch: batchIds } = options;
+
+  // 参数验证
+  if (!productId && !batchIds) {
+    console.error('❌ 错误：必须指定 --product 或 --batch 参数之一');
+    process.exit(1);
+  }
+
+  if (productId && batchIds) {
+    console.error('❌ 错误：--product 和 --batch 参数不能同时使用');
+    process.exit(1);
+  }
 
   // 验证配置
   if (!validateConfig()) {
     process.exit(1);
   }
 
+  // 批量处理模式
+  if (batchIds) {
+    const productIds = batchIds.split(',').map(id => id.trim());
+    console.log(`\n🚀 开始批量执行商品发布流程 - ${productIds.length} 个商品`);
+    console.log('='.repeat(60));
+    console.log(`📋 商品列表: ${productIds.join(', ')}`);
+
+    // 详细模式下显示配置信息
+    if (options.verbose) {
+      printConfig();
+    }
+
+    // 调用批量处理
+    const { runBatch } = require('./steps/step0-task-init');
+    await runBatch(productIds);
+    return;
+  }
+
+  // 单商品模式（原有逻辑）
   console.log(`\n🚀 开始执行商品发布流程 - ProductID: ${productId}`);
   console.log('='.repeat(60));
 
