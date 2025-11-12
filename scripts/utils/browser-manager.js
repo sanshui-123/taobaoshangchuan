@@ -1,193 +1,171 @@
 const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+const net = require('net');
 const path = require('path');
 
 /**
- * 全局浏览器管理器 - 使用持久化上下文
- * 单例模式 - 确保全局只有一个浏览器实例，且永不关闭
+ * 浏览器管理器
+ * - 使用系统级 Chrome（remote debugging）保持窗口常驻
+ * - Node 进程退出后浏览器依旧保持
  */
 class BrowserManager {
   constructor() {
-    // 单例模式
     if (BrowserManager.instance) {
       return BrowserManager.instance;
     }
-    BrowserManager.instance = this;
 
     this.browser = null;
     this.context = null;
-    this.mainPage = null; // 保存主页面引用
-    this.initPromise = null; // 初始化Promise，避免重复初始化
-    this.profileDir = path.resolve(process.cwd(), 'storage', 'browser-profile');
-    this.pages = []; // 跟踪所有创建的页面，但不关闭它们
+    this.mainPage = null;
+    this.initPromise = null;
 
-    // 不在构造函数中初始化，改为按需懒加载
+    this.profileDir = path.resolve(process.cwd(), 'storage', 'browser-profile');
+    this.remotePort = parseInt(process.env.CHROME_REMOTE_PORT || '9222', 10);
+    this.chromeAppName = process.env.CHROME_APP_NAME || 'Google Chrome';
+    this.chromeHost = process.env.CHROME_REMOTE_HOST || '127.0.0.1';
+
+    BrowserManager.instance = this;
   }
 
   /**
-   * 初始化浏览器（懒加载）
+   * 检查端口是否已被监听
+   */
+  _isPortListening() {
+    return new Promise((resolve) => {
+      const socket = net.createConnection(
+        { port: this.remotePort, host: this.chromeHost },
+        () => {
+          socket.destroy();
+          resolve(true);
+        }
+      );
+
+      socket.setTimeout(1000);
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.on('error', () => {
+        resolve(false);
+      });
+    });
+  }
+
+  /**
+   * 等待端口就绪
+   */
+  async _waitForPort(timeout = 20000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (await this._isPortListening()) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(`Chrome 远程调试端口 ${this.remotePort} 未在预期时间内就绪`);
+  }
+
+  /**
+   * 启动独立 Chrome（detach），确保 Node 退出后窗口依旧存在
+   */
+  async _ensureChromeLaunched() {
+    if (await this._isPortListening()) {
+      return;
+    }
+
+    console.log('🚀 启动独立 Chrome（detach）...');
+    const args = [
+      '-n',
+      '-a',
+      this.chromeAppName,
+      '--args',
+      `--remote-debugging-port=${this.remotePort}`,
+      `--user-data-dir=${this.profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check'
+    ];
+
+    spawn('open', args, {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+
+    await this._waitForPort();
+  }
+
+  /**
+   * 连接至已有 Chrome
+   */
+  async _connectToChrome() {
+    await this._ensureChromeLaunched();
+    const endpoint = `http://${this.chromeHost}:${this.remotePort}`;
+    console.log(`🔗 连接 Chrome 调试端口: ${endpoint}`);
+    return await chromium.connectOverCDP(endpoint);
+  }
+
+  /**
+   * 初始化/获取 context（懒加载）
    */
   async _init() {
-    // 如果已经有context，直接返回
     if (this.context) {
-      console.log('✅ 复用已有浏览器上下文');
       return this.context;
     }
 
-    // 如果正在初始化，返回同一个Promise
-    if (this.initPromise) {
-      console.log('⏳ 等待浏览器初始化完成...');
-      return this.initPromise;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        const browser = await this._connectToChrome();
+        this.browser = browser;
+        const contexts = browser.contexts();
+        this.context = contexts.length > 0 ? contexts[0] : await browser.newContext();
+        return this.context;
+      })();
     }
 
-    // 开始初始化
-    console.log('🌐 初始化持久化浏览器...');
-    this.initPromise = this._doInit();
-
     try {
-      const context = await this.initPromise;
-      this.context = context;
-      return context;
-    } catch (error) {
-      this.initPromise = null; // 失败后重置，允许重试
-      throw error;
+      await this.initPromise;
+      return this.context;
+    } finally {
+      this.initPromise = null;
     }
   }
 
-  /**
-   * 实际的初始化逻辑
-   */
-  async _doInit() {
-    try {
-      // 使用持久化上下文
-      this.browser = await chromium.launchPersistentContext(this.profileDir, {
-        headless: false, // 必须有头模式
-        args: [
-          '--start-maximized',
-          '--disable-blink-features=AutomationControlled',
-          '--disable-dev-shm-usage',
-          '--disable-setuid-sandbox',
-          '--no-sandbox',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-features=TranslateUI', // 防止自动关闭
-          '--autoplay-policy=no-user-gesture-required' // 防止自动关闭
-        ],
-        viewport: null,
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        // 关键：不要在脚本结束时自动关闭
-        closeOnPageUnattached: false
-      });
-
-      console.log('✅ 持久化浏览器初始化成功');
-      console.log(`📁 用户数据目录: ${this.profileDir}`);
-
-      return this.browser;
-    } catch (error) {
-      console.error('❌ 浏览器初始化失败:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取浏览器上下文
-   */
   async getContext() {
     return await this._init();
   }
 
-  /**
-   * 获取当前页面
-   */
-  getCurrentPages() {
-    return this.context ? this.context.pages() : [];
-  }
-
-  /**
-   * 获取主页面（如果不存在则创建）
-   */
   async getMainPage() {
-    // 确保浏览器已初始化
-    await this.getContext();
+    const context = await this.getContext();
+    const existing = context.pages().find((p) => !p.isClosed());
 
-    if (!this.mainPage || this.mainPage.isClosed()) {
-      console.log('📄 创建主页面...');
-      this.mainPage = await this.context.newPage();
-      this.pages.push(this.mainPage);
-
-      // 禁止关闭主页面
-      this.mainPage.on('close', () => {
-        console.log('⚠️ 主页面被关闭，但浏览器保持打开状态');
-        this.mainPage = null;
-      });
-    } else {
-      console.log('📄 复用已有主页面');
+    if (existing) {
+      this.mainPage = existing;
+      return existing;
     }
 
+    console.log('📄 创建主页面...');
+    this.mainPage = await context.newPage();
     return this.mainPage;
   }
 
-  /**
-   * 创建新页面
-   */
   async newPage() {
     const context = await this.getContext();
-    const page = await context.newPage();
-
-    // 跟踪页面但不关闭
-    this.pages.push(page);
-
-    // 禁止关闭页面
-    page.on('close', () => {
-      console.log('📄 页面已关闭，但浏览器保持打开状态');
-    });
-
-    return page;
+    return await context.newPage();
   }
 
-  /**
-   * 获取页面（返回主页面或新页面）
-   */
   async getPage() {
     return await this.getMainPage();
   }
 
-  /**
-   * 关闭浏览器（禁用 - 永不关闭浏览器）
-   * 为了保持浏览器持续打开，这个方法被禁用
-   */
   async close() {
-    console.log('⚠️ 浏览器保持打开状态，不会被关闭');
-    // 不执行实际的关闭操作
+    console.log('⚠️ 浏览器由系统托管，不执行关闭操作');
     return Promise.resolve();
   }
 
-  /**
-   * 强制关闭（仅在完全关闭程序时使用）
-   */
   async forceClose() {
-    if (this.context) {
-      // 注释掉实际的关闭操作，保持浏览器窗口打开
-      // await this.context.close();
-      this.context = null;
-      this.browser = null;
-      this.isInitialized = false;
-      console.log('⚠️ 浏览器窗口保持打开，仅清理引用');
-    }
-  }
-
-  /**
-   * 检查浏览器是否正在运行
-   */
-  isConnected() {
-    return this.isInitialized && this.context && this.context.browser().isConnected();
+    console.log('⚠️ 浏览器需手动关闭（或结束 Chrome 进程），此处仅清理引用');
+    this.context = null;
+    this.browser = null;
   }
 }
 
-// 创建单例实例
-const browserManager = new BrowserManager();
-
-// 导出实例和方法
-module.exports = browserManager;
+module.exports = new BrowserManager();

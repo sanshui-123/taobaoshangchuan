@@ -1,7 +1,7 @@
 {
   "productId": "C25117160",
   "feishuRecordId": "recv2fMGxgxJsd",
-  "createdAt": "2025-11-12T09:08:18.191Z",
+  "createdAt": "2025-11-12T09:27:33.641Z",
   "stepStatus": {
     "0": "done",
     "1": "pending",
@@ -95,5 +95,5 @@
     "L",
     "XL"
   ],
-  "processedAt": "2025-11-12T09:08:18.191Z"
+  "processedAt": "2025-11-12T09:27:33.641Z"
 }
