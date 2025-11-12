@@ -124,22 +124,84 @@ async function checkProductExists(productId) {
     // 检查是否找到了商品
     console.log('🔍 检查搜索结果...');
 
-    // 等待表格渲染 - 使用千牛实际DOM结构
-    console.log('⏳ 等待表格内容渲染...');
-    await page.waitForSelector('.next-table .next-table-inner table', { timeout: 15000 });
-    console.log('✅ 表格内容已渲染');
+    // 等待搜索结果加载 - 使用多种策略
+    console.log('⏳ 等待搜索结果加载...');
 
-    // 等待一下确保数据加载完成
-    await page.waitForTimeout(1000);
+    let searchResultsFound = false;
+
+    // 策略1: 等待表格或空数据提示出现
+    try {
+      await Promise.race([
+        page.waitForSelector('.next-table .next-table-inner table', { timeout: 10000 }),
+        page.waitForSelector('.next-table-empty', { timeout: 10000 })
+      ]);
+      searchResultsFound = true;
+      console.log('✅ 搜索结果已加载（表格或空数据）');
+    } catch (error) {
+      console.log('⚠️ 表格选择器超时，尝试其他策略...');
+    }
+
+    // 策略2: 如果表格选择器失败，尝试更通用的选择器
+    if (!searchResultsFound) {
+      try {
+        await page.waitForSelector('table', { timeout: 5000 });
+        searchResultsFound = true;
+        console.log('✅ 找到通用table元素');
+      } catch (error) {
+        console.log('⚠️ 通用table选择器也超时');
+      }
+    }
+
+    // 策略3: 最后等待一下确保页面稳定
+    if (!searchResultsFound) {
+      console.log('⏳ 等待页面稳定...');
+      await page.waitForTimeout(3000);
+    }
 
     // 检查是否有空数据提示
     const emptyVisible = await page.locator('.next-table-empty').isVisible().catch(() => false);
     console.log(`📝 空数据提示状态: ${emptyVisible}`);
 
-    // 统计商品行数 - 使用实际DOM结构 tbody > tr.next-table-row
-    const tableRows = page.locator('tbody tr.next-table-row');
-    const rows = await tableRows.count();
-    console.log(`📊 找到 ${rows} 行商品数据`);
+    // 统计商品行数 - 使用多种选择器策略
+    let rows = 0;
+    let tableRows = null;
+
+    // 策略1: 使用用户提供的精确选择器
+    try {
+      tableRows = page.locator('tbody tr.next-table-row');
+      rows = await tableRows.count();
+      console.log(`📊 策略1: 找到 ${rows} 行商品数据（使用 tbody tr.next-table-row）`);
+    } catch (error) {
+      console.log('⚠️ 策略1失败:', error.message);
+    }
+
+    // 策略2: 如果策略1失败，尝试更通用的表格行选择器
+    if (rows === 0) {
+      try {
+        tableRows = page.locator('table tr');
+        rows = await tableRows.count();
+        console.log(`📊 策略2: 找到 ${rows} 行表格数据（使用 table tr）`);
+      } catch (error) {
+        console.log('⚠️ 策略2失败:', error.message);
+      }
+    }
+
+    // 策略3: 检查页面是否包含商品ID文本
+    if (rows === 0) {
+      try {
+        const pageText = await page.textContent('body');
+        const productIdFound = pageText.includes(productId);
+        console.log(`📊 策略3: 页面文本中${productIdFound ? '包含' : '不包含'}商品ID ${productId}`);
+
+        // 如果页面包含商品ID，说明可能有结果但是DOM结构不同
+        if (productIdFound) {
+          rows = 1; // 假设找到商品
+          console.log('📊 基于页面文本内容，判定找到了商品');
+        }
+      } catch (error) {
+        console.log('⚠️ 策略3失败:', error.message);
+      }
+    }
 
     if (emptyVisible || rows === 0) {
       console.log(`❌ 商品不存在 (空提示: ${emptyVisible}, 行数: ${rows})`);
@@ -162,14 +224,21 @@ async function checkProductExists(productId) {
     // 遍历每一行，查找商品ID
     let productFound = false;
 
-    for (let i = 0; i < rows; i++) {
-      const row = tableRows.nth(i);
-      const rowText = await row.textContent();
-      if (rowText.includes(productId)) {
-        productFound = true;
-        console.log(`✅ 找到商品 ${productId} 在第 ${i + 1} 行`);
-        break;
+    // 如果有tableRows，遍历查找
+    if (tableRows && rows > 0) {
+      for (let i = 0; i < rows; i++) {
+        const row = tableRows.nth(i);
+        const rowText = await row.textContent();
+        if (rowText.includes(productId)) {
+          productFound = true;
+          console.log(`✅ 找到商品 ${productId} 在第 ${i + 1} 行`);
+          break;
+        }
       }
+    } else {
+      // 如果没有表格行，使用策略3的结果
+      console.log(`📊 基于页面文本内容判定: ${rows > 0 ? '找到' : '未找到'}商品`);
+      productFound = rows > 0;
     }
 
     if (productFound) {
