@@ -38,3 +38,6 @@ Thumbs.db
 # 测试
 .env.test
 .env.local
+# Cache
+cache/
+publish_log*.txt
