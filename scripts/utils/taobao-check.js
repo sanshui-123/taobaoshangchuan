@@ -46,7 +46,7 @@ async function checkProductExists(productId) {
     page.setDefaultTimeout(timeout);
 
     // 访问千牛卖家中心-我的商品页面
-    console.log('📖 访问千牛卖家中心...');
+    console.log('📖 访问千牛卖家中心商品管理页面...');
     try {
       await page.goto('https://myseller.taobao.com/home.htm/SellManage/all', {
         waitUntil: 'networkidle',
@@ -69,53 +69,106 @@ async function checkProductExists(productId) {
     }
 
     // 等待页面加载
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    // 查找搜索框
-    console.log('🔍 查找搜索框...');
-    const searchInput = await page.locator('input[placeholder*="搜索"], input[placeholder*="商品"]').first();
+    // 查找商家编码输入框
+    console.log('🔍 查找商家编码输入框...');
+    let searchInput;
+    try {
+      // 使用你提供的选择器
+      searchInput = await page.locator('.input-queryOuterId input').first();
+      if (!(await searchInput.isVisible())) {
+        // 备用选择器
+        searchInput = await page.locator('input[placeholder*="商家编码"]').first();
+      }
+    } catch (e) {
+      // 尝试其他可能的选择器
+      searchInput = await page.locator('input[placeholder*="编码"], input[placeholder*="商家"], input[placeholder*="ID"]').first();
+    }
 
     if (await searchInput.isVisible()) {
-      console.log('✅ 找到搜索框，输入商品ID...');
+      console.log('✅ 找到商家编码输入框，输入商品ID...');
+      await searchInput.clear();
       await searchInput.fill(productId);
       await page.waitForTimeout(500);
 
-      // 点击搜索按钮或按回车
-      console.log('🔎 提交搜索...');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(3000);
+      // 查找并点击搜索按钮
+      console.log('🔎 查找搜索按钮...');
+      let searchButton;
+      try {
+        searchButton = await page.locator('button.next-btn.next-small.next-btn-primary').first();
+        if (!(await searchButton.isVisible())) {
+          // 备用选择器
+          searchButton = await page.locator('button:has-text("搜索"), button:has-text("查询"), .next-btn-primary').first();
+        }
+      } catch (e) {
+        searchButton = await page.locator('button:has-text("搜索")').first();
+      }
+
+      if (await searchButton.isVisible()) {
+        console.log('✅ 找到搜索按钮，点击搜索...');
+        await searchButton.click();
+        // 等待列表刷新
+        await page.waitForTimeout(3000);
+      } else {
+        // 尝试按回车键
+        console.log('⚠️ 未找到搜索按钮，尝试按回车键...');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(3000);
+      }
     } else {
-      // 如果没有找到搜索框，抛出异常并截图
+      // 如果没有找到输入框，抛出异常并截图
       const timestamp = Date.now();
       const screenshotPath = path.resolve(
         process.cwd(),
         'screenshots',
-        `check_no_searchbox_${productId}_${timestamp}.png`
+        `check_no_input_${productId}_${timestamp}.png`
       );
 
-      console.error('❌ 未找到搜索框！');
+      console.error('❌ 未找到商家编码输入框！');
       console.log('📸 保存截图:', screenshotPath);
       await page.screenshot({ path: screenshotPath, fullPage: true });
 
-      throw new Error(`无法找到搜索框，页面可能加载失败。截图已保存: ${screenshotPath}`);
+      throw new Error(`无法找到商家编码输入框，页面可能加载失败或结构已改变。截图已保存: ${screenshotPath}`);
     }
 
     // 检查是否找到了商品
     console.log('🔍 检查搜索结果...');
 
-    // 多种方式检查商品是否存在
-    const exists = await Promise.race([
-      // 方法1: 查找包含商品ID的文本
-      page.locator(`text=${productId}`).isVisible(),
+    // 先等待页面加载完成
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
-      // 方法2: 查找商品链接
-      page.locator(`a[href*="${productId}"]`).isVisible(),
+    // 检查是否有空数据提示
+    const hasEmptyData = await page.locator('.next-table-empty').isVisible();
+    if (hasEmptyData) {
+      console.log('❌ 找到空数据提示，商品不存在');
 
-      // 方法3: 查找商品标题或ID单元格
-      page.locator('td, div, span').filter({ hasText: productId }).first().isVisible()
-    ]);
+      // 截图保存
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_empty_${productId}_${Date.now()}.png`
+      );
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`📸 截图已保存: ${screenshotPath}`);
 
-    if (exists) {
+      return false;
+    }
+
+    // 检查表格行数
+    const tableRows = await page.locator('.next-table-body tr').count();
+    console.log(`📊 找到 ${tableRows} 行数据`);
+
+    if (tableRows === 0) {
+      console.log('❌ 没有找到任何商品行');
+      return false;
+    }
+
+    // 查找包含商品ID的行
+    const hasProduct = await page.locator('.next-table-cell-wrap', { hasText: productId }).isVisible();
+
+    if (hasProduct) {
       console.log(`✅ 商品 ${productId} 已存在于淘宝`);
 
       // 截图保存证据
@@ -130,6 +183,16 @@ async function checkProductExists(productId) {
       return true;
     } else {
       console.log(`❌ 商品 ${productId} 不存在于淘宝`);
+
+      // 截图保存当前状态
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_notfound_${productId}_${Date.now()}.png`
+      );
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`📸 截图已保存: ${screenshotPath}`);
+
       return false;
     }
 
