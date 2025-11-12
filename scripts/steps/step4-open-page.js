@@ -40,13 +40,11 @@ const step4 = async (ctx) => {
       fs.mkdirSync(screenshotDir, { recursive: true });
     }
 
-    // 使用全局browser-manager获取context
-    ctx.logger.info('初始化浏览器...');
+    // 使用全局browser-manager获取context和页面
+    ctx.logger.info('获取浏览器上下文...');
     context = await browserManager.getContext();
-
-    // 创建主页面
-    ctx.logger.info('打开千牛主页...');
-    page = await browserManager.newPage();
+    page = await browserManager.getMainPage();
+    ctx.logger.info('✅ 使用已有浏览器上下文和主页面');
 
     // 设置超时
     page.setDefaultTimeout(timeout);
@@ -113,65 +111,19 @@ const step4 = async (ctx) => {
     // 如果右键菜单没反应，尝试直接进入发布页面
     ctx.logger.info('进入发布相似品页面...');
 
-    // 监听新页面（弹窗）
-    const pagePromise = new Promise(resolve => {
-      context.once('page', p => {
-        resolve(p);
-      });
-    });
-
-    // 点击"发布相似品"按钮
+    // 直接在主页面访问发布页面，不打开新标签
+    ctx.logger.info('访问发布页面...');
     try {
-      // 尝试多种方式找到发布按钮
-      const publishSelectors = [
-        'text=发布相似品',
-        'button:has-text("发布相似品")',
-        'a:has-text("发布相似品")',
-        '.publish-similar',
-        '[data-action="publish-similar"]'
-      ];
-
-      for (const selector of publishSelectors) {
-        try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            ctx.logger.success(`✅ 点击"发布相似品": ${selector}`);
-            break;
-          }
-        } catch (e) {
-          // 继续尝试
-        }
-      }
-
-      // 如果没找到按钮，尝试直接访问发布页面
-      ctx.logger.info('尝试直接访问发布页面...');
-      await page.evaluate(() => {
-        window.open('https://sell.taobao.com/publish/publish.htm', '_blank');
+      await page.goto('https://sell.taobao.com/publish/publish.htm', {
+        waitUntil: 'networkidle',
+        timeout: 30000
       });
-
+      ctx.logger.success('✅ 已访问发布页面');
+      page1 = page; // 使用同一个页面
     } catch (error) {
-      ctx.logger.warn(`点击发布按钮失败: ${error.message}`);
-      // 尝试JavaScript方式
-      await page.evaluate(() => {
-        const links = document.querySelectorAll('a, button');
-        for (const link of links) {
-          if (link.textContent.includes('发布相似品')) {
-            link.click();
-            break;
-          }
-        }
-      });
+      ctx.logger.error(`访问发布页面失败: ${error.message}`);
+      throw new Error('无法访问发布页面');
     }
-
-    // 等待新页面打开
-    ctx.logger.info('等待发布页面打开...');
-    page1 = await Promise.race([
-      pagePromise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('页面打开超时')), 15000)
-      )
-    ]);
 
     ctx.logger.success('✅ 发布页面已打开');
 

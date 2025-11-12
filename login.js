@@ -130,10 +130,8 @@ async function login() {
     process.exit(1); // 退出码1：其他错误
 
   } finally {
-    if (browser) {
-      console.log('\n🔒 关闭浏览器...');
-      await browser.close();
-    }
+    // 注意：不关闭浏览器，让 browser-manager 管理生命周期
+    console.log('\n✅ 登录状态已保存，浏览器保持打开状态');
   }
 }
 

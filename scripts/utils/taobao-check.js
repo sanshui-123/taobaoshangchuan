@@ -40,10 +40,10 @@ async function checkProductExists(productId) {
   let page = null;
 
   try {
-    // 使用持久化浏览器上下文
-    context = await browserManager.getContext();
-    page = await context.newPage();
+    // 获取已有页面（不创建新页面）
+    page = await browserManager.getPage();
     page.setDefaultTimeout(timeout);
+    console.log('✅ 复用已有页面');
 
     // 访问千牛卖家中心-我的商品页面
     console.log('📖 访问千牛卖家中心商品管理页面...');

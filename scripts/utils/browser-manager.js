@@ -15,9 +15,31 @@ class BrowserManager {
 
     this.browser = null;
     this.context = null;
+    this.mainPage = null; // 保存主页面引用
     this.isInitialized = false;
+    this.isInitializing = false; // 防止并发初始化
     this.profileDir = path.resolve(process.cwd(), 'storage', 'browser-profile');
     this.pages = []; // 跟踪所有创建的页面，但不关闭它们
+
+    // 模块加载时自动初始化
+    this._autoInit();
+  }
+
+  /**
+   * 自动初始化（异步，但不阻塞）
+   */
+  async _autoInit() {
+    if (this.isInitialized || this.isInitializing) {
+      return;
+    }
+    this.isInitializing = true;
+
+    try {
+      await this.initialize();
+    } catch (error) {
+      console.error('❌ 自动初始化失败:', error);
+      this.isInitializing = false;
+    }
   }
 
   /**
@@ -25,8 +47,19 @@ class BrowserManager {
    */
   async initialize() {
     if (this.isInitialized && this.context) {
+      console.log('✅ 复用已有浏览器上下文');
       return this.context;
     }
+
+    if (this.isInitializing) {
+      // 等待初始化完成
+      while (this.isInitializing) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return this.context;
+    }
+
+    this.isInitializing = true;
 
     try {
       console.log('🌐 初始化持久化浏览器...');
@@ -41,7 +74,10 @@ class BrowserManager {
           '--disable-setuid-sandbox',
           '--no-sandbox',
           '--no-first-run',
-          '--no-default-browser-check'
+          '--no-default-browser-check',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding'
         ],
         viewport: null,
         userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -49,6 +85,7 @@ class BrowserManager {
 
       this.context = this.browser;
       this.isInitialized = true;
+      this.isInitializing = false;
 
       console.log('✅ 持久化浏览器初始化成功');
       console.log(`📁 用户数据目录: ${this.profileDir}`);
@@ -56,6 +93,7 @@ class BrowserManager {
       return this.context;
     } catch (error) {
       console.error('❌ 浏览器初始化失败:', error);
+      this.isInitializing = false;
       throw error;
     }
   }
@@ -75,6 +113,30 @@ class BrowserManager {
   }
 
   /**
+   * 获取主页面（如果不存在则创建）
+   */
+  async getMainPage() {
+    // 确保浏览器已初始化
+    await this.getContext();
+
+    if (!this.mainPage || this.mainPage.isClosed()) {
+      console.log('📄 创建主页面...');
+      this.mainPage = await this.context.newPage();
+      this.pages.push(this.mainPage);
+
+      // 禁止关闭主页面
+      this.mainPage.on('close', () => {
+        console.log('⚠️ 主页面被关闭，但浏览器保持打开状态');
+        this.mainPage = null;
+      });
+    } else {
+      console.log('📄 复用已有主页面');
+    }
+
+    return this.mainPage;
+  }
+
+  /**
    * 创建新页面
    */
   async newPage() {
@@ -84,12 +146,19 @@ class BrowserManager {
     // 跟踪页面但不关闭
     this.pages.push(page);
 
-    // 移除页面关闭监听器，防止自动关闭
+    // 禁止关闭页面
     page.on('close', () => {
       console.log('📄 页面已关闭，但浏览器保持打开状态');
     });
 
     return page;
+  }
+
+  /**
+   * 获取页面（返回主页面或新页面）
+   */
+  async getPage() {
+    return await this.getMainPage();
   }
 
   /**
@@ -126,5 +195,5 @@ class BrowserManager {
 // 创建单例实例
 const browserManager = new BrowserManager();
 
-// 导出单例
+// 导出实例和方法
 module.exports = browserManager;
