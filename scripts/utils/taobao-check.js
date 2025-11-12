@@ -124,19 +124,23 @@ async function checkProductExists(productId) {
     // 检查是否找到了商品
     console.log('🔍 检查搜索结果...');
 
-    // 等待搜索结果渲染
-    await page.waitForSelector('div.next-table-body', { timeout: 10000 });
+    // 等待表格渲染 - 使用千牛实际的选择器
+    console.log('⏳ 等待表格内容渲染...');
+    await page.waitForSelector('.next-table-body-inner table', { timeout: 15000 });
     console.log('✅ 表格内容已渲染');
 
     // 等待一下确保数据加载完成
     await page.waitForTimeout(1000);
 
-    // 检查是否有空数据提示
-    const emptyElement = page.locator('.next-table-empty');
-    const hasEmptyData = await emptyElement.isVisible();
+    // 统计商品行数
+    const rows = await page.locator('.next-table-body-inner table tbody tr').count();
+    console.log(`📊 找到 ${rows} 行商品数据`);
 
-    if (hasEmptyData) {
-      console.log('❌ 找到空数据提示 (.next-table-empty)，商品不存在');
+    // 检查是否有空数据提示
+    const emptyVisible = await page.locator('.next-table-empty').isVisible().catch(() => false);
+
+    if (emptyVisible || rows === 0) {
+      console.log(`❌ 商品不存在 (空提示: ${emptyVisible}, 行数: ${rows})`);
 
       // 截图保存空结果
       const screenshotPath = path.resolve(
@@ -150,56 +154,48 @@ async function checkProductExists(productId) {
       return false;
     }
 
-    // 统计商品行数
-    const tableRows = page.locator('.next-table-body .next-table-row');
-    const rowCount = await tableRows.count();
-    console.log(`📊 找到 ${rowCount} 行商品数据`);
+    // 检查商品ID是否在结果中
+    console.log(`🔍 检查商品ID ${productId} 是否存在...`);
 
-    if (rowCount > 0) {
-      // 检查商品ID是否在结果中
-      console.log(`🔍 检查商品ID ${productId} 是否存在...`);
+    // 遍历每一行，查找商品ID
+    let productFound = false;
+    const tableRows = page.locator('.next-table-body-inner table tbody tr');
 
-      // 遍历每一行，查找商品ID
-      let productFound = false;
-      for (let i = 0; i < rowCount; i++) {
-        const row = tableRows.nth(i);
-        const rowText = await row.textContent();
-        if (rowText.includes(productId)) {
-          productFound = true;
-          console.log(`✅ 找到商品 ${productId} 在第 ${i + 1} 行`);
-          break;
-        }
+    for (let i = 0; i < rows; i++) {
+      const row = tableRows.nth(i);
+      const rowText = await row.textContent();
+      if (rowText.includes(productId)) {
+        productFound = true;
+        console.log(`✅ 找到商品 ${productId} 在第 ${i + 1} 行`);
+        break;
       }
+    }
 
-      if (productFound) {
-        console.log(`✅ 商品 ${productId} 已存在于淘宝`);
+    if (productFound) {
+      console.log(`✅ 商品 ${productId} 已存在于淘宝`);
 
-        // 截图保存证据
-        const screenshotPath = path.resolve(
-          process.cwd(),
-          'screenshots',
-          `check_exists_${productId}_${Date.now()}.png`
-        );
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 截图已保存: ${screenshotPath}`);
+      // 截图保存证据
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_exists_${productId}_${Date.now()}.png`
+      );
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`📸 截图已保存: ${screenshotPath}`);
 
-        return true;
-      } else {
-        console.log(`❌ 商品 ${productId} 不在搜索结果中（但有其他商品）`);
-
-        // 截图保存
-        const screenshotPath = path.resolve(
-          process.cwd(),
-          'screenshots',
-          `check_notfound_${productId}_${Date.now()}.png`
-        );
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 截图已保存: ${screenshotPath}`);
-
-        return false;
-      }
+      return true;
     } else {
-      console.log('❌ 没有找到任何商品行');
+      console.log(`❌ 商品 ${productId} 不在搜索结果中（但有其他 ${rows} 行数据）`);
+
+      // 截图保存
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_notfound_${productId}_${Date.now()}.png`
+      );
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`📸 截图已保存: ${screenshotPath}`);
+
       return false;
     }
 
