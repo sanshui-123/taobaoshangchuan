@@ -124,20 +124,22 @@ async function checkProductExists(productId) {
     // 检查是否找到了商品
     console.log('🔍 检查搜索结果...');
 
-    // 等待表格渲染 - 使用千牛实际的选择器
+    // 等待表格渲染 - 使用千牛实际DOM结构
     console.log('⏳ 等待表格内容渲染...');
-    await page.waitForSelector('.next-table-body-inner table', { timeout: 15000 });
+    await page.waitForSelector('.next-table .next-table-inner table', { timeout: 15000 });
     console.log('✅ 表格内容已渲染');
 
     // 等待一下确保数据加载完成
     await page.waitForTimeout(1000);
 
-    // 统计商品行数
-    const rows = await page.locator('.next-table-body-inner table tbody tr').count();
-    console.log(`📊 找到 ${rows} 行商品数据`);
-
     // 检查是否有空数据提示
     const emptyVisible = await page.locator('.next-table-empty').isVisible().catch(() => false);
+    console.log(`📝 空数据提示状态: ${emptyVisible}`);
+
+    // 统计商品行数 - 使用实际DOM结构 tbody > tr.next-table-row
+    const tableRows = page.locator('tbody tr.next-table-row');
+    const rows = await tableRows.count();
+    console.log(`📊 找到 ${rows} 行商品数据`);
 
     if (emptyVisible || rows === 0) {
       console.log(`❌ 商品不存在 (空提示: ${emptyVisible}, 行数: ${rows})`);
@@ -159,7 +161,6 @@ async function checkProductExists(productId) {
 
     // 遍历每一行，查找商品ID
     let productFound = false;
-    const tableRows = page.locator('.next-table-body-inner table tbody tr');
 
     for (let i = 0; i < rows; i++) {
       const row = tableRows.nth(i);
