@@ -140,6 +140,44 @@ async function processRecord(record, ctx) {
     currentStatus = checkingValue;
   }
 
+  // 临时强制执行查重（用于测试）
+  ctx.logger.info(`🔍 强制执行查重测试（当前状态: ${currentStatus}）...`);
+
+  // 立即执行查重
+  try {
+    // 检查商品是否已存在
+    const exists = await checkProductExists(productId);
+
+    if (exists) {
+      // 商品已存在，更新状态为"已上传到淘宝"
+      ctx.logger.info(`✅ 商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
+      await feishuClient.updateRecord(record_id, {
+        [statusField]: doneValue
+      });
+
+      // 更新步骤状态并跳过后续步骤
+      updateStepStatus(productId, 0, 'done');
+      ctx.logger.success('✅ 商品已存在，跳过上传流程');
+      return;
+    } else {
+      // 商品不存在，更新状态为"待上传"
+      ctx.logger.info(`❌ 商品 ${productId} 不存在于淘宝，更新状态为"${pendingValue}"`);
+      await feishuClient.updateRecord(record_id, {
+        [statusField]: pendingValue
+      });
+      // 更新本地状态，继续处理
+      currentStatus = pendingValue;
+    }
+  } catch (checkError) {
+    // 查重异常，更新错误状态
+    ctx.logger.error(`查重失败: ${checkError.message}`);
+    await feishuClient.updateRecord(record_id, {
+      [statusField]: errorValue
+    });
+    throw new Error(`查重失败: ${checkError.message}`);
+  }
+
+  /*
   // 状态为空时，先更新为"待检测"，然后立即执行查重
   if (!currentStatus || currentStatus === '') {
     ctx.logger.info(`状态为空，更新为"${checkingValue}"并立即查重...`);
@@ -161,9 +199,7 @@ async function processRecord(record, ctx) {
         // 商品已存在，更新状态为"已上传到淘宝"
         ctx.logger.info(`✅ 商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
         await feishuClient.updateRecord(record_id, {
-          [statusField]: doneValue,
-          [process.env.FEISHU_DURATION_FIELD || '执行时长']: '0秒',
-          [process.env.FEISHU_REPORT_FIELD || '报告文件']: `查重命中 - ${new Date().toLocaleString()}`
+          [statusField]: doneValue
         });
 
         // 更新步骤状态并跳过后续步骤
@@ -202,9 +238,7 @@ async function processRecord(record, ctx) {
         // 商品已存在，更新状态为"已上传到淘宝"
         ctx.logger.info(`✅ 商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
         await feishuClient.updateRecord(record_id, {
-          [statusField]: doneValue,
-          [process.env.FEISHU_DURATION_FIELD || '执行时长']: '0秒',
-          [process.env.FEISHU_REPORT_FIELD || '报告文件']: `查重命中 - ${new Date().toLocaleString()}`
+          [statusField]: doneValue
         });
 
         // 更新步骤状态并跳过后续步骤
@@ -231,6 +265,7 @@ async function processRecord(record, ctx) {
       throw new Error(`查重失败: ${checkError.message}`);
     }
   }
+  */
 
   // 状态不是"待上传"，则跳过处理
   if (currentStatus !== pendingValue) {
