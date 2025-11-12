@@ -467,10 +467,10 @@ async function runBatch(productIds) {
     warn: (msg) => console.log(`[BATCH] ⚠️ ${msg}`)
   };
 
-  // 共享一次飞书扫描
-  batchLogger.info('开始扫描飞书表格...');
+  // 共享一次飞书扫描（只扫描待检测的记录）
+  batchLogger.info('开始扫描飞书表格（仅待检测记录）...');
   const allRecords = await feishuClient.getAllRecords();
-  batchLogger.success(`获取到 ${allRecords.length} 条记录`);
+  batchLogger.success(`获取到 ${allRecords.length} 条待检测记录`);
 
   // 初始化浏览器管理器（共享浏览器上下文）
   const browserManager = require('../utils/browser-manager');
@@ -505,11 +505,11 @@ async function runBatch(productIds) {
       });
 
       if (!record) {
-        batchLogger.error(`未找到商品 ${productId} 的飞书记录`);
+        batchLogger.error(`未找到商品 ${productId} 的待检测记录（该商品可能不是待检测状态）`);
         results.push({
           productId,
           success: false,
-          error: '未找到飞书记录',
+          error: '未找到待检测记录',
           status: null
         });
         continue;

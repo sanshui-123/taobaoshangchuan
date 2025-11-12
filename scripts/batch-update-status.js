@@ -22,9 +22,10 @@ async function batchUpdateStatus() {
   console.log(`商品列表: ${productIds.join(', ')}`);
 
   try {
-    // 获取所有记录
+    // 获取所有记录（不过滤状态）
     console.log('\n📋 获取飞书表格数据...');
-    const allRecords = await feishuClient.getAllRecords();
+    const allRecordsResponse = await feishuClient.getRecords(1000, null);
+    const allRecords = allRecordsResponse.records || allRecordsResponse.items || [];
     console.log(`✅ 获取到 ${allRecords.length} 条记录`);
 
     // 查找目标记录
@@ -71,7 +72,7 @@ async function batchUpdateStatus() {
 
     const response = await feishuClient.batchUpdateRecords(updateRecords);
 
-    if (response && response.code === 0) {
+    if (response && (response.code === 0 || response.records)) {
       console.log(`\n✅ 成功更新 ${targetRecords.length} 条记录为"${checkingValue}"状态`);
       console.log('\n更新详情:');
       targetRecords.forEach(r => {

@@ -170,28 +170,23 @@ class FeishuClient {
     if (filterStatuses && filterStatuses.length > 0) {
       const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
 
-      // 构建条件过滤器
-      const conditions = filterStatuses.map(status => {
-        if (status === '') {
-          // is_empty 操作符不需要 value 参数
-          return {
-            field_name: statusField,
-            operator: 'is_empty'
-          };
-        } else {
-          return {
-            field_name: statusField,
-            operator: 'is',
-            value: status
-          };
-        }
-      });
+      // 过滤掉空状态，只处理具体的状态值
+      const validStatuses = filterStatuses.filter(status => status !== '');
 
-      // 使用 OR 连接条件
-      path += `&filter=${encodeURIComponent(JSON.stringify({
-        conjunction: 'or',
-        conditions: conditions
-      }))}`;
+      if (validStatuses.length > 0) {
+        // 构建条件过滤器 - 使用简化的过滤器结构
+        const conditions = validStatuses.map(status => ({
+          field_name: statusField,
+          operator: 'is',
+          value: status
+        }));
+
+        // 使用 OR 连接条件
+        path += `&filter=${encodeURIComponent(JSON.stringify({
+          conjunction: 'or',
+          conditions: conditions
+        }))}`;
+      }
     }
 
     const response = await this.request(path);
@@ -224,11 +219,25 @@ class FeishuClient {
    * 获取所有记录（带筛选）
    */
   async getAllRecords() {
-    // 获取所有记录（不使用过滤）
-    const response = await this.getRecords(1000, []);
-
-    // 直接返回所有记录，不进行本地过滤
-    return response.records || response.items || [];
+    // 先尝试使用 API 过滤，如果失败则回退到本地过滤
+    try {
+      const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+      const response = await this.getRecords(1000, [checkingValue]);
+      return response.records || response.items || [];
+    } catch (error) {
+      // 如果 API 过滤失败，回退到获取所有记录并在本地过滤
+      if (error.message.includes('InvalidFilter')) {
+        this.logger?.warn?.('API 过滤失败，回退到本地过滤');
+        const response = await this.getRecords(1000, null);
+        const allRecords = response.records || response.items || [];
+        const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+        return allRecords.filter(record => {
+          const statusValue = record.fields[process.env.FEISHU_STATUS_FIELD || '上传状态'];
+          return statusValue === checkingValue;
+        });
+      }
+      throw error;
+    }
   }
 
   /**
