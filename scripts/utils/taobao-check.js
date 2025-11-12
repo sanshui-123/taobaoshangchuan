@@ -210,20 +210,20 @@ async function checkProductExists(productId) {
   } catch (error) {
     console.error(`❌ 检查商品时出错: ${error.message}`);
 
-    // 尝试截图错误页面
-    if (page) {
-      try {
-        const errorScreenshotPath = path.resolve(
-          process.cwd(),
-          'screenshots',
-          `check_error_${productId}_${Date.now()}.png`
-        );
-        await page.screenshot({ path: errorScreenshotPath, fullPage: true });
-        console.log(`📸 错误截图已保存: ${errorScreenshotPath}`);
-      } catch (screenshotError) {
-        // 忽略截图错误
-      }
-    }
+    // 注释掉错误截图，避免页面超时关闭
+    // if (page) {
+    //   try {
+    //     const errorScreenshotPath = path.resolve(
+    //       process.cwd(),
+    //       'screenshots',
+    //       `check_error_${productId}_${Date.now()}.png`
+    //     );
+    //     await page.screenshot({ path: errorScreenshotPath, fullPage: true });
+    //     console.log(`📸 错误截图已保存: ${errorScreenshotPath}`);
+    //   } catch (screenshotError) {
+    //     // 忽略截图错误
+    //   }
+    // }
 
     return false;
   }
