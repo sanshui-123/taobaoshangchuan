@@ -71,53 +71,65 @@ async function checkProductExists(productId) {
     // 等待页面加载
     await page.waitForTimeout(3000);
 
-    // 查找商家编码输入框
+    // 等待并查找商家编码输入框
     console.log('🔍 查找商家编码输入框...');
-    let searchInput;
+
     try {
-      // 使用你提供的选择器
-      searchInput = await page.locator('.input-queryOuterId input').first();
-      if (!(await searchInput.isVisible())) {
-        // 备用选择器
-        searchInput = await page.locator('input[placeholder*="商家编码"]').first();
-      }
-    } catch (e) {
-      // 尝试其他可能的选择器
-      searchInput = await page.locator('input[placeholder*="编码"], input[placeholder*="商家"], input[placeholder*="ID"]').first();
-    }
+      // 等待输入框出现
+      await page.waitForSelector('input[placeholder="商家编码"]', { timeout: 10000 });
+      console.log('✅ 找到商家编码输入框');
 
-    if (await searchInput.isVisible()) {
-      console.log('✅ 找到商家编码输入框，输入商品ID...');
-      await searchInput.clear();
-      await searchInput.fill(productId);
-      await page.waitForTimeout(500);
+      const codeInput = page.locator('input[placeholder="商家编码"]');
 
-      // 查找并点击搜索按钮
-      console.log('🔎 查找搜索按钮...');
-      let searchButton;
-      try {
-        searchButton = await page.locator('button.next-btn.next-small.next-btn-primary').first();
-        if (!(await searchButton.isVisible())) {
-          // 备用选择器
-          searchButton = await page.locator('button:has-text("搜索"), button:has-text("查询"), .next-btn-primary').first();
+      // 确保输入框可见
+      if (await codeInput.isVisible()) {
+        console.log('✅ 输入框可见，输入商品ID...');
+        await codeInput.clear();
+        await codeInput.fill(productId);
+        await page.waitForTimeout(500);
+
+        // 查找并点击搜索按钮
+        console.log('🔎 查找搜索按钮...');
+        try {
+          // 等待搜索按钮
+          await page.waitForSelector('button:has-text("搜索")', { timeout: 5000 });
+          const searchButton = page.locator('button:has-text("搜索")');
+
+          if (await searchButton.isVisible()) {
+            console.log('✅ 找到搜索按钮，点击搜索...');
+            await searchButton.click();
+            // 等待列表刷新
+            await page.waitForTimeout(3000);
+          } else {
+            // 尝试按回车键
+            console.log('⚠️ 未找到搜索按钮，尝试按回车键...');
+            await codeInput.press('Enter');
+            await page.waitForTimeout(3000);
+          }
+        } catch (e) {
+          console.log('⚠️ 查找搜索按钮失败，尝试按回车键...');
+          await codeInput.press('Enter');
+          await page.waitForTimeout(3000);
         }
-      } catch (e) {
-        searchButton = await page.locator('button:has-text("搜索")').first();
+      } else {
+        throw new Error('输入框不可见');
       }
 
-      if (await searchButton.isVisible()) {
-        console.log('✅ 找到搜索按钮，点击搜索...');
-        await searchButton.click();
-        // 等待列表刷新
-        await page.waitForTimeout(3000);
-      } else {
-        // 尝试按回车键
-        console.log('⚠️ 未找到搜索按钮，尝试按回车键...');
-        await page.keyboard.press('Enter');
-        await page.waitForTimeout(3000);
+    } catch (error) {
+      // 如果没有找到输入框，输出调试信息
+      console.error('❌ 未找到商家编码输入框！');
+      console.error('当前页面URL:', await page.url());
+
+      // 获取页面内容的片段
+      try {
+        const pageContent = await page.content();
+        const contentSnippet = pageContent.substring(0, 1000);
+        console.error('页面内容片段:', contentSnippet);
+      } catch (e) {
+        console.error('无法获取页面内容');
       }
-    } else {
-      // 如果没有找到输入框，抛出异常并截图
+
+      // 截图
       const timestamp = Date.now();
       const screenshotPath = path.resolve(
         process.cwd(),
@@ -125,11 +137,10 @@ async function checkProductExists(productId) {
         `check_no_input_${productId}_${timestamp}.png`
       );
 
-      console.error('❌ 未找到商家编码输入框！');
       console.log('📸 保存截图:', screenshotPath);
       await page.screenshot({ path: screenshotPath, fullPage: true });
 
-      throw new Error(`无法找到商家编码输入框，页面可能加载失败或结构已改变。截图已保存: ${screenshotPath}`);
+      throw new Error(`无法找到商家编码输入框。当前URL: ${await page.url()}。截图已保存: ${screenshotPath}`);
     }
 
     // 检查是否找到了商品
