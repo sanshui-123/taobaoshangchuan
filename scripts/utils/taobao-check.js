@@ -63,7 +63,9 @@ async function checkProductExists(productId) {
 
       console.error('❌ 页面加载失败!');
       console.log('📸 保存截图:', screenshotPath);
-      await page.screenshot({ path: screenshotPath, fullPage: true });
+      if (process.env.TAKE_SCREENSHOT === 'true') {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+      }
 
       throw new Error(`页面加载失败: ${error.message}。截图已保存: ${screenshotPath}`);
     }
@@ -116,7 +118,9 @@ async function checkProductExists(productId) {
       );
 
       console.log('📸 保存错误截图:', screenshotPath);
-      await page.screenshot({ path: screenshotPath, fullPage: true });
+      if (process.env.TAKE_SCREENSHOT === 'true') {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+      }
 
       throw new Error(`查重失败: ${error.message}。当前URL: ${currentUrl}。截图已保存: ${screenshotPath}`);
     }
@@ -212,8 +216,10 @@ async function checkProductExists(productId) {
         'screenshots',
         `check_empty_${productId}_${Date.now()}.png`
       );
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      console.log(`📸 截图已保存: ${screenshotPath}`);
+      if (process.env.TAKE_SCREENSHOT === 'true') {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`📸 截图已保存: ${screenshotPath}`);
+      }
 
       return false;
     }
@@ -250,8 +256,10 @@ async function checkProductExists(productId) {
         'screenshots',
         `check_exists_${productId}_${Date.now()}.png`
       );
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      console.log(`📸 截图已保存: ${screenshotPath}`);
+      if (process.env.TAKE_SCREENSHOT === 'true') {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`📸 截图已保存: ${screenshotPath}`);
+      }
 
       return true;
     } else {
@@ -263,8 +271,10 @@ async function checkProductExists(productId) {
         'screenshots',
         `check_notfound_${productId}_${Date.now()}.png`
       );
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      console.log(`📸 截图已保存: ${screenshotPath}`);
+      if (process.env.TAKE_SCREENSHOT === 'true') {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`📸 截图已保存: ${screenshotPath}`);
+      }
 
       return false;
     }
