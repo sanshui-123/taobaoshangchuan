@@ -16,54 +16,48 @@ class BrowserManager {
     this.browser = null;
     this.context = null;
     this.mainPage = null; // 保存主页面引用
-    this.isInitialized = false;
-    this.isInitializing = false; // 防止并发初始化
+    this.initPromise = null; // 初始化Promise，避免重复初始化
     this.profileDir = path.resolve(process.cwd(), 'storage', 'browser-profile');
     this.pages = []; // 跟踪所有创建的页面，但不关闭它们
 
-    // 模块加载时自动初始化
-    this._autoInit();
+    // 不在构造函数中初始化，改为按需懒加载
   }
 
   /**
-   * 自动初始化（异步，但不阻塞）
+   * 初始化浏览器（懒加载）
    */
-  async _autoInit() {
-    if (this.isInitialized || this.isInitializing) {
-      return;
-    }
-    this.isInitializing = true;
-
-    try {
-      await this.initialize();
-    } catch (error) {
-      console.error('❌ 自动初始化失败:', error);
-      this.isInitializing = false;
-    }
-  }
-
-  /**
-   * 初始化浏览器（如果还没初始化）
-   */
-  async initialize() {
-    if (this.isInitialized && this.context) {
+  async _init() {
+    // 如果已经有context，直接返回
+    if (this.context) {
       console.log('✅ 复用已有浏览器上下文');
       return this.context;
     }
 
-    if (this.isInitializing) {
-      // 等待初始化完成
-      while (this.isInitializing) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      return this.context;
+    // 如果正在初始化，返回同一个Promise
+    if (this.initPromise) {
+      console.log('⏳ 等待浏览器初始化完成...');
+      return this.initPromise;
     }
 
-    this.isInitializing = true;
+    // 开始初始化
+    console.log('🌐 初始化持久化浏览器...');
+    this.initPromise = this._doInit();
 
     try {
-      console.log('🌐 初始化持久化浏览器...');
+      const context = await this.initPromise;
+      this.context = context;
+      return context;
+    } catch (error) {
+      this.initPromise = null; // 失败后重置，允许重试
+      throw error;
+    }
+  }
 
+  /**
+   * 实际的初始化逻辑
+   */
+  async _doInit() {
+    try {
       // 使用持久化上下文
       this.browser = await chromium.launchPersistentContext(this.profileDir, {
         headless: false, // 必须有头模式
@@ -83,17 +77,12 @@ class BrowserManager {
         userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
 
-      this.context = this.browser;
-      this.isInitialized = true;
-      this.isInitializing = false;
-
       console.log('✅ 持久化浏览器初始化成功');
       console.log(`📁 用户数据目录: ${this.profileDir}`);
 
-      return this.context;
+      return this.browser;
     } catch (error) {
       console.error('❌ 浏览器初始化失败:', error);
-      this.isInitializing = false;
       throw error;
     }
   }
@@ -102,7 +91,7 @@ class BrowserManager {
    * 获取浏览器上下文
    */
   async getContext() {
-    return await this.initialize();
+    return await this._init();
   }
 
   /**
