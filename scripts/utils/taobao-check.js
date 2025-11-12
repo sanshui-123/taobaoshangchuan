@@ -2,8 +2,8 @@
  * 淘宝商品查重工具
  * 使用 Playwright 检查商品是否已上传到淘宝
  */
-const playwright = require('playwright');
 const path = require('path');
+const browserManager = require('./browser-manager');
 
 /**
  * 检查商品是否已存在于淘宝
@@ -36,32 +36,37 @@ async function checkProductExists(productId) {
   console.log(`🌐 无头模式: ${headless ? '是' : '否'}`);
   console.log(`📋 HEADLESS配置值: ${process.env.HEADLESS || 'undefined'}`);
 
-  let browser = null;
   let context = null;
   let page = null;
 
   try {
-    // 启动浏览器
-    browser = await playwright.chromium.launch({
-      headless: headless,
-      slowMo: 100
-    });
-
-    // 创建带存储状态的上下文
-    context = await browser.newContext({
-      storageState: storageStatePath,
-      viewport: { width: 1920, height: 1080 },
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-
+    // 使用持久化浏览器上下文
+    context = await browserManager.getContext();
     page = await context.newPage();
     page.setDefaultTimeout(timeout);
 
     // 访问千牛卖家中心-我的商品页面
     console.log('📖 访问千牛卖家中心...');
-    await page.goto('https://myseller.taobao.com/home.htm/SellManage/all', {
-      waitUntil: 'networkidle'
-    });
+    try {
+      await page.goto('https://myseller.taobao.com/home.htm/SellManage/all', {
+        waitUntil: 'networkidle',
+        timeout: 30000 // 30秒超时
+      });
+    } catch (error) {
+      // 页面加载失败，截图并抛出异常
+      const timestamp = Date.now();
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_page_load_fail_${productId}_${timestamp}.png`
+      );
+
+      console.error('❌ 页面加载失败!');
+      console.log('📸 保存截图:', screenshotPath);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+
+      throw new Error(`页面加载失败: ${error.message}。截图已保存: ${screenshotPath}`);
+    }
 
     // 等待页面加载
     await page.waitForTimeout(2000);
@@ -80,8 +85,19 @@ async function checkProductExists(productId) {
       await page.keyboard.press('Enter');
       await page.waitForTimeout(3000);
     } else {
-      // 如果没有找到搜索框，尝试直接在页面中搜索商品ID
-      console.log('⚠️ 未找到搜索框，尝试直接查找商品ID...');
+      // 如果没有找到搜索框，抛出异常并截图
+      const timestamp = Date.now();
+      const screenshotPath = path.resolve(
+        process.cwd(),
+        'screenshots',
+        `check_no_searchbox_${productId}_${timestamp}.png`
+      );
+
+      console.error('❌ 未找到搜索框！');
+      console.log('📸 保存截图:', screenshotPath);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+
+      throw new Error(`无法找到搜索框，页面可能加载失败。截图已保存: ${screenshotPath}`);
     }
 
     // 检查是否找到了商品
@@ -136,17 +152,9 @@ async function checkProductExists(productId) {
     }
 
     return false;
-  } finally {
-    // 清理资源
-    try {
-      if (page) await page.close();
-      if (context) await context.close();
-      if (browser) await browser.close();
-      console.log('🧹 浏览器资源已清理');
-    } catch (closeError) {
-      console.error(`⚠️ 关闭浏览器时出错: ${closeError.message}`);
-    }
   }
+  // 注意：不关闭页面，保持浏览器打开状态
+  console.log('📄 检查完成，页面保持打开状态');
 }
 
 // 如果直接运行此文件

@@ -124,7 +124,16 @@ class FeishuClient {
             if (response.code === 0) {
               resolve(response.data);
             } else {
-              reject(new Error(`请求失败: ${response.msg}`));
+              // 添加更详细的错误信息
+              let errorMsg = `请求失败: ${response.msg}`;
+              if (response.msg.includes('FieldNameNotFound')) {
+                // 尝试从请求体中提取字段名
+                if (data && data.records && data.records[0] && data.records[0].fields) {
+                  const fieldNames = Object.keys(data.records[0].fields);
+                  errorMsg += `\n尝试更新的字段: ${fieldNames.join(', ')}`;
+                }
+              }
+              reject(new Error(errorMsg));
             }
           } catch (e) {
             // 调试输出
@@ -239,6 +248,31 @@ class FeishuClient {
           fields: fields
         }
       ]
+    };
+    return this.request(path, 'POST', data);
+  }
+
+  /**
+   * 批量更新多条记录
+   */
+  async batchUpdateRecords(records) {
+    if (!this.appToken || !this.tableId) {
+      throw new Error('App token and table ID are required');
+    }
+
+    if (!records || records.length === 0) {
+      return { code: 0, data: { records: [] } };
+    }
+
+    // 限制批量更新的记录数量
+    const MAX_BATCH_SIZE = 500;
+    if (records.length > MAX_BATCH_SIZE) {
+      console.warn(`批量更新记录数 ${records.length} 超过限制 ${MAX_BATCH_SIZE}，将分批处理`);
+    }
+
+    const path = `/bitable/v1/apps/${this.appToken}/tables/${this.tableId}/records/batch_update`;
+    const data = {
+      records: records
     };
     return this.request(path, 'POST', data);
   }

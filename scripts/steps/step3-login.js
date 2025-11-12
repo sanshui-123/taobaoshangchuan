@@ -29,13 +29,13 @@ const step3 = async (ctx) => {
       return;
     }
 
-    // 2. 检查storage文件是否过期（超过7天）
+    // 2. 检查storage文件是否过期（超过24小时）
     const stats = fs.statSync(storagePath);
-    const fileAge = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
-    const maxAge = 7; // 7天有效期
+    const fileAge = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60); // 小时
+    const maxAge = 24; // 24小时有效期
 
     if (fileAge > maxAge) {
-      ctx.logger.warn(`登录状态已过期（${fileAge.toFixed(1)}天），需要重新登录`);
+      ctx.logger.warn(`登录状态已过期（${fileAge.toFixed(1)}小时），需要重新登录`);
       await performLogin(ctx);
       return;
     }
@@ -66,7 +66,7 @@ const step3 = async (ctx) => {
       ctx.logger.success('✅ 登录状态有效');
       ctx.logger.info(`Storage路径: ${storagePath}`);
       ctx.logger.info(`Cookie数量: ${storageState.cookies.length}`);
-      ctx.logger.info(`文件年龄: ${fileAge.toFixed(1)}天`);
+      ctx.logger.info(`文件年龄: ${fileAge.toFixed(1)}小时`);
 
       // 更新缓存
       const taskCache = loadTaskCache(ctx.productId);
@@ -110,6 +110,11 @@ async function performLogin(ctx) {
     ctx.logger.info('启动登录脚本...');
     ctx.logger.info('提示：请在打开的浏览器中完成登录');
 
+    // 创建新的心跳定时器（独立于外部的作用域）
+    const loginHeartbeat = setInterval(() => {
+      process.stdout.write('.');
+    }, 5000);
+
     // 执行登录脚本
     const child = spawn('node', [loginScript], {
       stdio: 'inherit',
@@ -122,7 +127,7 @@ async function performLogin(ctx) {
       if (resolved) return;
       resolved = true;
 
-      clearInterval(heartbeat);
+      clearInterval(loginHeartbeat);
 
       // 解析退出码
       switch (code) {
@@ -166,7 +171,7 @@ async function performLogin(ctx) {
     child.on('error', (error) => {
       if (resolved) return;
       resolved = true;
-      clearInterval(heartbeat);
+      clearInterval(loginHeartbeat);
       reject(error);
     });
 
@@ -174,7 +179,7 @@ async function performLogin(ctx) {
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        clearInterval(heartbeat);
+        clearInterval(loginHeartbeat);
         child.kill();
         reject(new Error('登录流程超时'));
       }

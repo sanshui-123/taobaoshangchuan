@@ -1,7 +1,7 @@
-const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
+const browserManager = require('../utils/browser-manager');
 
 /**
  * 步骤4：打开发布页面
@@ -40,30 +40,13 @@ const step4 = async (ctx) => {
       fs.mkdirSync(screenshotDir, { recursive: true });
     }
 
-    // 启动浏览器
-    ctx.logger.info('启动浏览器...');
-    browser = await chromium.launch({
-      headless: headless,
-      args: [
-        '--start-maximized',
-        '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-setuid-sandbox'
-      ]
-    });
-
-    // 创建上下文，使用已保存的storage state
-    ctx.logger.info('加载登录状态...');
-    const storageState = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
-    context = await browser.newContext({
-      viewport: null,
-      storageState: storageState,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
+    // 使用全局browser-manager获取context
+    ctx.logger.info('初始化浏览器...');
+    context = await browserManager.getContext();
 
     // 创建主页面
     ctx.logger.info('打开千牛主页...');
-    page = await context.newPage();
+    page = await browserManager.newPage();
 
     // 设置超时
     page.setDefaultTimeout(timeout);
@@ -255,10 +238,8 @@ const step4 = async (ctx) => {
       }
     }
 
-    // 关闭浏览器
-    if (browser) {
-      await browser.close();
-    }
+    // 注意：不关闭浏览器，保持打开状态供后续步骤使用
+    ctx.logger.info('💡 浏览器保持打开状态，供后续步骤使用');
 
     updateStepStatus(ctx.productId, 4, 'failed');
     throw error;
@@ -267,8 +248,7 @@ const step4 = async (ctx) => {
     clearInterval(heartbeat);
     process.stdout.write('\n');
 
-    // 注意：不要关闭浏览器，后续步骤需要使用
-    ctx.logger.info('\n💡 浏览器保持打开状态，供后续步骤使用');
+    // 浏览器保持打开状态，供后续步骤使用
   }
 };
 

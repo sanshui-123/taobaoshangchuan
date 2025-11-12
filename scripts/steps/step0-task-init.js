@@ -4,6 +4,21 @@ const { checkProductExists } = require('../utils/taobao-check');
 const fs = require('fs');
 const path = require('path');
 
+// 辅助函数：安全地构建更新数据，只包含存在的字段
+function buildUpdateData(fields) {
+  const updateData = {};
+
+  Object.entries(fields).forEach(([envKey, value]) => {
+    const fieldValue = process.env[envKey];
+    // 检查环境变量存在且不是注释（不以#开头）
+    if (fieldValue && !fieldValue.startsWith('#')) {
+      updateData[fieldValue] = value;
+    }
+  });
+
+  return updateData;
+}
+
 /**
  * 步骤0：任务初始化
  * 从飞书获取待发布商品数据
@@ -12,6 +27,8 @@ const step0 = async (ctx) => {
   ctx.logger.info('开始从飞书获取待发布商品数据');
 
   try {
+    // 批量预处理：将所有空状态记录更新为"待检测"
+    await scanAndMarkPending(ctx);
     // 检查是否已从命令行参数指定了商品ID
     if (ctx.productId) {
       ctx.logger.info(`使用指定商品ID: ${ctx.productId}`);
@@ -22,7 +39,12 @@ const step0 = async (ctx) => {
       // 查找匹配的记录
       const record = allRecords.find(r => {
         const productId = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
-        return productId && productId[0] === ctx.productId;
+        // 处理商品ID可能是字符串或数组的情况
+        if (Array.isArray(productId)) {
+          return productId.includes(ctx.productId);
+        } else {
+          return productId === ctx.productId;
+        }
       });
 
       if (!record) {
@@ -55,10 +77,11 @@ const step0 = async (ctx) => {
     // 如果有recordId，更新飞书状态
     if (ctx.feishuRecordId) {
       try {
-        await feishuClient.updateRecord(ctx.feishuRecordId, {
-          [process.env.FEISHU_STATUS_FIELD || '上传状态']: process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
-          [process.env.FEISHU_ERROR_LOG_FIELD || '错误日志']: `步骤0失败: ${error.message}`
+        const updateData = buildUpdateData({
+          FEISHU_STATUS_FIELD: process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
+          FEISHU_ERROR_LOG_FIELD: `步骤0失败: ${error.message}`
         });
+        await feishuClient.updateRecord(ctx.feishuRecordId, updateData);
       } catch (updateError) {
         ctx.logger.error(`更新飞书状态失败: ${updateError.message}`);
       }
@@ -82,26 +105,40 @@ async function processRecord(record, ctx) {
     ctx.logger.error(`缺少必填字段: ${validation.missingFields.join(', ')}`);
 
     // 更新飞书状态为错误
-    await feishuClient.updateRecord(record_id, {
-      [process.env.FEISHU_STATUS_FIELD || '上传状态']: process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
-      [process.env.FEISHU_ERROR_LOG_FIELD || '错误日志']:
-        `缺少必填字段: ${validation.missingFields.join(', ')}`
+    const errorData = buildUpdateData({
+      FEISHU_STATUS_FIELD: process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
+      FEISHU_ERROR_LOG_FIELD: `缺少必填字段: ${validation.missingFields.join(', ')}`
     });
+    await feishuClient.updateRecord(record_id, errorData);
 
     throw new Error(`缺少必填字段: ${validation.missingFields.join(', ')}`);
   }
 
   // 获取商品数据
-  const productId = fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'][0];
+  const productIdField = fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+  const productId = Array.isArray(productIdField) ? productIdField[0] : productIdField;
 
   // 获取当前状态
   const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
-  const currentStatus = fields[statusField];
+  let currentStatus = fields[statusField];
+
+  // 定义所有有效状态
   const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
   const pendingValue = process.env.FEISHU_STATUS_PENDING_VALUE || '待上传';
   const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
-  const runningValue = process.env.FEISHU_STATUS_RUNNING_VALUE || '处理中';
   const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+
+  // 所有可能的有效状态
+  const validStatuses = [checkingValue, pendingValue, doneValue, errorValue, ''];
+
+  // 强制执行状态规则：如果状态不是有效值之一，立即更新为"待检测"
+  if (!validStatuses.includes(currentStatus)) {
+    ctx.logger.warn(`⚠️ 检测到无效状态"${currentStatus}"，强制更新为"${checkingValue}"`);
+    await feishuClient.updateRecord(record_id, {
+      [statusField]: checkingValue
+    });
+    currentStatus = checkingValue;
+  }
 
   // 状态为空时，先更新为"待检测"，然后立即执行查重
   if (!currentStatus || currentStatus === '') {
@@ -145,10 +182,11 @@ async function processRecord(record, ctx) {
     } catch (checkError) {
       // 查重异常，更新错误状态
       ctx.logger.error(`查重失败: ${checkError.message}`);
-      await feishuClient.updateRecord(record_id, {
-        [statusField]: errorValue,
-        [process.env.FEISHU_ERROR_LOG_FIELD || '错误日志']: `查重失败: ${checkError.message}`
+      const errorData = buildUpdateData({
+        FEISHU_STATUS_FIELD: errorValue,
+        FEISHU_ERROR_LOG_FIELD: `查重失败: ${checkError.message}`
       });
+      await feishuClient.updateRecord(record_id, errorData);
       throw new Error(`查重失败: ${checkError.message}`);
     }
   }
@@ -185,10 +223,11 @@ async function processRecord(record, ctx) {
     } catch (checkError) {
       // 查重异常，更新错误状态
       ctx.logger.error(`查重失败: ${checkError.message}`);
-      await feishuClient.updateRecord(record_id, {
-        [statusField]: errorValue,
-        [process.env.FEISHU_ERROR_LOG_FIELD || '错误日志']: `查重失败: ${checkError.message}`
+      const errorData = buildUpdateData({
+        FEISHU_STATUS_FIELD: errorValue,
+        FEISHU_ERROR_LOG_FIELD: `查重失败: ${checkError.message}`
       });
+      await feishuClient.updateRecord(record_id, errorData);
       throw new Error(`查重失败: ${checkError.message}`);
     }
   }
@@ -199,25 +238,60 @@ async function processRecord(record, ctx) {
     return;
   }
 
-  // 更新状态为"处理中"
+  // 更新状态为"处理中"（直接使用"待上传"）
   await feishuClient.updateRecord(record_id, {
-    [statusField]: runningValue
+    [statusField]: pendingValue
   });
+
+  // 辅助函数：获取字段值（处理数组和字符串）
+  const getFieldValue = (fields, fieldName, defaultValue = '') => {
+    const value = fields[fieldName];
+    if (Array.isArray(value)) {
+      return value[0] || defaultValue;
+    } else if (typeof value === 'string') {
+      // 处理换行符分隔的值（如颜色、尺码）
+      return value.includes('\n') ? value.split('\n') : value;
+    }
+    return value || defaultValue;
+  };
+
+  // 专门处理图片URL字段
+  const getImageUrls = (fields, fieldName) => {
+    const value = fields[fieldName];
+    if (Array.isArray(value)) {
+      return value;
+    } else if (typeof value === 'string') {
+      // 图片URL通常用换行分隔
+      return value.split('\n').filter(url => url.trim());
+    }
+    return [];
+  };
+
+  // 处理多值字段（如颜色、尺码）
+  const getMultiValueField = (fields, fieldName) => {
+    const value = fields[fieldName];
+    if (Array.isArray(value)) {
+      return value;
+    } else if (typeof value === 'string') {
+      return value.split('\n').filter(v => v.trim());
+    }
+    return [];
+  };
 
   const productData = {
     productId,
     feishuRecordId: record_id,
-    brand: fields[process.env.FEISHU_BRAND_FIELD || '品牌'][0] || '',
-    titleCN: fields[process.env.FEISHU_TITLE_CN_FIELD || '标题'][0] || '',
-    titleJP: fields[process.env.FEISHU_TITLE_JP_FIELD || 'タイトル'][0] || '',
-    descriptionCN: fields[process.env.FEISHU_DESCRIPTION_CN_FIELD || '卖点'][0] || '',
-    descriptionJP: fields[process.env.FEISHU_DESCRIPTION_JP_FIELD || '卖点_日文'][0] || '',
-    detailCN: fields[process.env.FEISHU_DETAIL_CN_FIELD || '详情页文字'][0] || '',
-    detailJP: fields[process.env.FEISHU_DETAIL_JP_FIELD || '详情页文字_日文'][0] || '',
-    price: fields[process.env.FEISHU_PRICE_FIELD || '价格'][0] || '',
-    images: fields[process.env.FEISHU_IMAGE_FIELD || '图片'] || [],
-    colors: fields[process.env.FEISHU_COLOR_FIELD || '颜色'] || [],
-    sizes: fields[process.env.FEISHU_SIZE_FIELD || '尺码'] || []
+    brand: getFieldValue(fields, process.env.FEISHU_BRAND_FIELD || '品牌名'),
+    titleCN: getFieldValue(fields, process.env.FEISHU_TITLE_FIELD || '商品标题'),
+    titleJP: getFieldValue(fields, process.env.FEISHU_JP_TITLE_FIELD || '日文标题'),
+    descriptionCN: getFieldValue(fields, process.env.FEISHU_DESCRIPTION_CN_FIELD || '卖点'),
+    descriptionJP: getFieldValue(fields, process.env.FEISHU_DESCRIPTION_JP_FIELD || '卖点_日文'),
+    detailCN: getFieldValue(fields, process.env.FEISHU_DETAIL_CN_FIELD || '详情页文字'),
+    detailJP: getFieldValue(fields, process.env.FEISHU_DETAIL_JP_FIELD || '详情页文字_日文'),
+    price: getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格'),
+    images: getImageUrls(fields, process.env.FEISHU_IMAGE_FIELD || '图片URL'),
+    colors: getMultiValueField(fields, process.env.FEISHU_COLOR_FIELD || '颜色'),
+    sizes: getMultiValueField(fields, process.env.FEISHU_SIZE_FIELD || '尺码')
   };
 
   ctx.logger.info(`商品ID: ${productId}`);
@@ -258,9 +332,77 @@ async function processRecord(record, ctx) {
   }
 
   // 清空错误日志
-  await feishuClient.updateRecord(record_id, {
-    [process.env.FEISHU_ERROR_LOG_FIELD || '错误日志']: ''
+  const clearErrorData = buildUpdateData({
+    FEISHU_ERROR_LOG_FIELD: ''
   });
+  if (Object.keys(clearErrorData).length > 0) {
+    await feishuClient.updateRecord(record_id, clearErrorData);
+  }
+}
+
+/**
+ * 批量扫描并标记空状态记录为"待检测"
+ * @param {Object} ctx - 上下文对象
+ */
+async function scanAndMarkPending(ctx) {
+  ctx.logger.info('🔍 开始扫描空状态的记录...');
+
+  try {
+    // 获取所有记录
+    const allRecords = await feishuClient.getAllRecords();
+    const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+    const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+
+    // 筛选出需要处理的记录（空状态或无效状态）
+    const validStatuses = [
+      process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测',
+      process.env.FEISHU_STATUS_PENDING_VALUE || '待上传',
+      process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝',
+      process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
+      ''
+    ];
+
+    const emptyRecords = allRecords.filter(record => {
+      const status = record.fields[statusField];
+      return !status || status === '' || !validStatuses.includes(status);
+    });
+
+    if (emptyRecords.length === 0) {
+      ctx.logger.info('✅ 没有空状态的记录需要处理');
+      return;
+    }
+
+    ctx.logger.info(`找到 ${emptyRecords.length} 条空状态记录，开始批量更新为"${checkingValue}"...`);
+
+    // 准备批量更新的数据
+    const updateRecords = emptyRecords.map(record => ({
+      record_id: record.record_id,
+      fields: {
+        [statusField]: checkingValue
+      }
+    }));
+
+    // 执行批量更新
+    const response = await feishuClient.batchUpdateRecords(updateRecords);
+
+    if (response && response.code === 0) {
+      ctx.logger.success(`✅ 成功更新 ${emptyRecords.length} 条记录为"${checkingValue}"状态`);
+
+      // 显示更新的商品ID
+      const updatedIds = emptyRecords.map(r => {
+        const pid = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+        return Array.isArray(pid) ? pid[0] : pid;
+      }).filter(Boolean);
+
+      ctx.logger.info(`更新商品ID列表: ${updatedIds.join(', ')}`);
+    } else {
+      ctx.logger.info(`⚠️ 批量更新部分失败，请检查日志`);
+    }
+
+  } catch (error) {
+    ctx.logger.error(`批量更新失败: ${error.message}`);
+    // 不抛出错误，允许主流程继续
+  }
 }
 
 /**
