@@ -191,6 +191,12 @@ async function runSteps(options) {
     const statusIcon = status === 'done' ? '✅' : status === 'failed' ? '❌' : '⏸️';
     console.log(`  ${statusIcon} Step ${stepId}: ${status}`);
   }
+
+  // 在开发模式下，保持浏览器窗口打开
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n📌 开发模式：保持浏览器窗口打开，按 Ctrl+C 退出');
+    // 不退出，让进程继续运行以保持浏览器
+  }
 }
 
 // 解析命令行参数并运行
@@ -201,5 +207,11 @@ const options = program.opts();
 // 运行流程
 runSteps(options).catch((error) => {
   console.error('\n💥 执行失败:', error);
-  process.exit(1);
+  // 在开发模式下，不立即退出以保持浏览器窗口
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n📌 开发模式：保持浏览器窗口打开，按 Ctrl+C 退出');
+    // 不调用 process.exit()，让进程继续运行
+  } else {
+    process.exit(1);
+  }
 });

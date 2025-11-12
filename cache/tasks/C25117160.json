@@ -1,8 +1,9 @@
 {
   "productId": "C25117160",
-  "createdAt": "2025-11-12T03:04:42.322Z",
+  "feishuRecordId": "recv2fMGxgxJsd",
+  "createdAt": "2025-11-12T09:08:18.191Z",
   "stepStatus": {
-    "0": "failed",
+    "0": "done",
     "1": "pending",
     "2": "pending",
     "3": "pending",
@@ -17,5 +18,82 @@
     "12": "pending",
     "13": "pending",
     "14": "pending"
-  }
+  },
+  "productData": {
+    "productId": "C25117160",
+    "feishuRecordId": "recv2fMGxgxJsd",
+    "brand": "卡拉威",
+    "titleCN": "25秋冬卡拉威高尔夫新款时尚轻便透气男士保暖抓绒卫衣",
+    "titleJP": "25秋冬卡拉威高尔夫新款时尚轻便透气男士保暖抓绒卫衣",
+    "descriptionCN": "",
+    "descriptionJP": "",
+    "detailCN": [
+      "【产品描述】",
+      "背面纵向排列着Callaway与CLUBHAUS的联名标识，打造原创设计感。正面的Clubhaus旗帜与Callaway经典Logo相得益彰，营造出干净利落、精致优雅的风格。请注意，本商品不适用于“首次购买15%折扣优惠券”活动。",
+      "",
+      "【产品亮点】",
+      "【联名设计】",
+      "【精致风格】",
+      "",
+      "【材质信息】",
+      "面料：100%棉",
+      "",
+      "【产地与洗涤】",
+      "产地：中国制造",
+      "洗涤：请参考洗涤标签"
+    ],
+    "detailJP": "",
+    "price": "1330",
+    "images": [
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_Ef5ibQpKaGv16y1A.jpg%3F1746779501&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YAlcXGtT2X51EQIR.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_suBLIhP9kuF81wKN.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_sQzFsVcOhcT71MCJ.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ElKhUd3KA8F83csG.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_UwIVRbsdIDZ91UxQ.jpg%3F1746779494&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_cFFNeantlES01kFQ.jpg%3F1746779493&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_IirEBJbzSKm675ov.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wJ8bOhb04ii12cjQ.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_uTopabBekm31k9oS.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YOOfqFwVcAA74wnK.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wf9YmKRUBqq41M0B.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ccvtaGMMyXv73E7y.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+      "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ATlfYaYTbrm41QX8.jpg%3F1746779499&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM"
+    ],
+    "colors": [
+      "黑色",
+      "白色"
+    ],
+    "sizes": [
+      "M",
+      "L",
+      "XL"
+    ]
+  },
+  "images": [
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_Ef5ibQpKaGv16y1A.jpg%3F1746779501&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YAlcXGtT2X51EQIR.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_suBLIhP9kuF81wKN.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_sQzFsVcOhcT71MCJ.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ElKhUd3KA8F83csG.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_UwIVRbsdIDZ91UxQ.jpg%3F1746779494&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_cFFNeantlES01kFQ.jpg%3F1746779493&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_IirEBJbzSKm675ov.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wJ8bOhb04ii12cjQ.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_uTopabBekm31k9oS.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YOOfqFwVcAA74wnK.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wf9YmKRUBqq41M0B.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ccvtaGMMyXv73E7y.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
+    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ATlfYaYTbrm41QX8.jpg%3F1746779499&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM"
+  ],
+  "colors": [
+    "黑色",
+    "白色"
+  ],
+  "sizes": [
+    "M",
+    "L",
+    "XL"
+  ],
+  "processedAt": "2025-11-12T09:08:18.191Z"
 }

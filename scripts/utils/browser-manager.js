@@ -71,10 +71,14 @@ class BrowserManager {
           '--no-default-browser-check',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding'
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI', // 防止自动关闭
+          '--autoplay-policy=no-user-gesture-required' // 防止自动关闭
         ],
         viewport: null,
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        // 关键：不要在脚本结束时自动关闭
+        closeOnPageUnattached: false
       });
 
       console.log('✅ 持久化浏览器初始化成功');
@@ -165,11 +169,12 @@ class BrowserManager {
    */
   async forceClose() {
     if (this.context) {
-      await this.context.close();
+      // 注释掉实际的关闭操作，保持浏览器窗口打开
+      // await this.context.close();
       this.context = null;
       this.browser = null;
       this.isInitialized = false;
-      console.log('✅ 浏览器已强制关闭');
+      console.log('⚠️ 浏览器窗口保持打开，仅清理引用');
     }
   }
 
