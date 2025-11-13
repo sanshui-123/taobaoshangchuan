@@ -44,11 +44,38 @@ const step1 = async (ctx) => {
       fs.mkdirSync(baseDir, { recursive: true });
     }
 
-    // 计算每个颜色应该分配的图片数量
-    const imagesPerColor = Math.ceil(images.length / colors.length);
-    ctx.logger.info(`找到 ${images.length} 张图片`);
-    ctx.logger.info(`找到 ${colors.length} 个颜色: ${colors.join(', ')}`);
-    ctx.logger.info(`每个颜色平均分配约 ${imagesPerColor} 张图片`);
+    // 新的图片分配策略：只有第1个颜色可以拿全部剩余图片，其余颜色最多各取6张
+    const colorCount = colors.length;
+    const imageCount = images.length;
+
+    ctx.logger.info(`找到 ${imageCount} 张图片`);
+    ctx.logger.info(`找到 ${colorCount} 个颜色: ${colors.join(', ')}`);
+
+    // 计算每个颜色的图片分配
+    let colorAllocation = [];
+    if (colorCount <= 0) {
+      // 如果没有颜色，全部命名为 color_1_xx
+      colorAllocation = [imageCount];
+      ctx.logger.info(`没有颜色信息，全部图片命名为 color_1_xx`);
+    } else if (colorCount === 1) {
+      // 只有1个颜色，全部图片归color_1
+      colorAllocation = [imageCount];
+      ctx.logger.info(`分配策略：color_1 分配全部 ${imageCount} 张图片`);
+    } else {
+      // 多个颜色的情况：color_1拿剩余，color_2及之后最多各6张
+      const otherColorsTotal = 6 * (colorCount - 1);  // color_2及之后总共需要的图片数
+      const color1Images = Math.max(0, imageCount - otherColorsTotal);  // color_1的图片数
+
+      // 如果图片总数不足以给其他颜色分配6张，则color_1拿剩余的
+      colorAllocation.push(color1Images);
+
+      // color_2, color_3... 每个最多6张
+      for (let i = 1; i < colorCount; i++) {
+        colorAllocation.push(6);
+      }
+
+      ctx.logger.info(`分配策略：color_1 分配 ${color1Images} 张，color_2 及之后每个颜色最多6张`);
+    }
 
     // 下载结果记录
     const downloadResults = {
@@ -78,10 +105,22 @@ const step1 = async (ctx) => {
         }
       }
 
-      // 计算当前图片属于哪个颜色（从1开始）
-      const colorIndex = Math.floor(i / imagesPerColor) + 1;
-      // 计算当前颜色下的图片序号（从1开始）
-      const imageIndexInColor = (i % imagesPerColor) + 1;
+      // 根据新的分配策略计算颜色索引和图片序号
+      let colorIndex = 1;
+      let imageIndexInColor = 1;
+      let accumulatedCount = 0;
+
+      // 找到当前图片应该属于哪个颜色
+      for (let c = 0; c < colorAllocation.length; c++) {
+        const previousAccumulated = accumulatedCount;
+        accumulatedCount += colorAllocation[c];
+
+        if (i < accumulatedCount) {
+          colorIndex = c + 1; // 颜色索引从1开始
+          imageIndexInColor = i - previousAccumulated + 1; // 在该颜色下的序号从1开始
+          break;
+        }
+      }
 
       try {
         // 构建文件名：color_1_01.jpg, color_1_02.jpg...
