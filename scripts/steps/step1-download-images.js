@@ -2,6 +2,7 @@ const { downloadAttachment } = require('../feishu/client');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 /**
  * 步骤1：下载图片
@@ -49,6 +50,20 @@ const step1 = async (ctx) => {
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
 
+      // 获取图片标识符（file_token或URL）- 在try外部声明
+      // 如果image是字符串，直接使用；如果是对象，取file_token或url属性
+      let imageIdentifier = typeof image === 'string' ? image : (image.file_token || image.url || image);
+
+      // 处理 callawaygolf.jp 的 Next.js 图片优化URL
+      if (imageIdentifier && imageIdentifier.includes('callawaygolf.jp/_next/image')) {
+        const urlMatch = imageIdentifier.match(/url=([^&]+)/);
+        if (urlMatch) {
+          // 解码真实的图片URL
+          imageIdentifier = decodeURIComponent(urlMatch[1]);
+          ctx.logger.info(`  🔗 提取真实图片URL: ${imageIdentifier.substring(0, 50)}...`);
+        }
+      }
+
       try {
         // 构建文件名：a1.jpg, a2.jpg, a3.jpg...
         const fileName = `a${i + 1}.jpg`;
@@ -69,8 +84,31 @@ const step1 = async (ctx) => {
         }
 
         // 从飞书下载图片
-        ctx.logger.info(`  下载图片 ${i + 1}/${images.length}: ${image.file_token}`);
-        const imageBuffer = await downloadAttachment(image.file_token);
+        // 支持两种格式：file_token（飞书文件）或 URL（直接链接）
+        ctx.logger.info(`  下载图片 ${i + 1}/${images.length}: ${imageIdentifier.substring(0, 50)}...`);
+
+        let imageBuffer;
+
+        if (imageIdentifier && imageIdentifier.startsWith('https://')) {
+          // 如果是URL，使用axios直接下载
+          ctx.logger.info(`    📥 使用URL下载图片`);
+          const response = await axios.get(imageIdentifier, {
+            responseType: 'arraybuffer',
+            timeout: 45000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Referer': 'https://www.callawaygolf.jp/',
+              'Cache-Control': 'no-cache'
+            }
+          });
+          imageBuffer = Buffer.from(response.data);
+        } else {
+          // 正式下载（使用file_token）
+          imageBuffer = await downloadAttachment(imageIdentifier);
+        }
 
         // 保存图片
         fs.writeFileSync(filePath, imageBuffer);
@@ -100,7 +138,7 @@ const step1 = async (ctx) => {
           index: i + 1,
           fileName: `a${i + 1}.jpg`,
           error: error.message,
-          fileToken: image.file_token
+          fileToken: imageIdentifier
         });
       }
     }
