@@ -456,6 +456,7 @@ function cleanFileName(name) {
  */
 async function runBatch(productIds) {
   const { createStepLogger } = require('../utils/logger');
+  const { checkMultipleProductsExists } = require('../utils/taobao-check');
 
   console.log(`\n📦 开始批量处理 ${productIds.length} 个商品...`);
 
@@ -483,74 +484,68 @@ async function runBatch(productIds) {
     throw error;
   }
 
-  // 批量处理结果统计
-  const results = [];
+  // 执行批量查重检查
+  console.log(`\n[BATCH] 开始批量查重检查 ${productIds.length} 个商品...`);
+  const resultMap = await checkMultipleProductsExists(productIds);
 
-  // 循环处理每个商品
-  for (let i = 0; i < productIds.length; i++) {
-    const productId = productIds[i];
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`[${i + 1}/${productIds.length}] 处理商品: ${productId}`);
-    console.log(`${'='.repeat(80)}`);
+  // 准备批量更新的数据
+  const updateRecords = [];
+  const successCount = resultMap.size;
+  let existsCount = 0;
+  let pendingCount = 0;
 
-    try {
-      // 查找对应的记录
-      const record = allRecords.find(r => {
-        const pid = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
-        if (Array.isArray(pid)) {
-          return pid.includes(productId);
-        } else {
-          return pid === productId;
-        }
-      });
-
-      if (!record) {
-        batchLogger.error(`未找到商品 ${productId} 的待检测记录（该商品可能不是待检测状态）`);
-        results.push({
-          productId,
-          success: false,
-          error: '未找到待检测记录',
-          status: null
-        });
-        continue;
+  // 遍历结果，准备更新数据
+  for (const [productId, exists] of resultMap) {
+    // 查找对应的记录
+    const record = allRecords.find(r => {
+      const pid = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+      if (Array.isArray(pid)) {
+        return pid.includes(productId);
+      } else {
+        return pid === productId;
       }
+    });
 
-      // 创建单个商品的上下文
-      const ctx = {
-        productId,
-        feishuRecordId: record.record_id,
-        logger: {
-          info: (msg) => console.log(`  [${productId}] ${msg}`),
-          success: (msg) => console.log(`  [${productId}] ✅ ${msg}`),
-          error: (msg) => console.log(`  [${productId}] ❌ ${msg}`),
-          warn: (msg) => console.log(`  [${productId}] ⚠️ ${msg}`)
-        }
-      };
-
-      // 执行查重检查（复用现有逻辑，但不关闭浏览器）
-      await checkProductExistsAndUpdateStatus(record, ctx);
-
-      results.push({
-        productId,
-        success: true,
-        error: null,
-        status: 'processed'
-      });
-
-      // 添加短暂延迟，避免操作过快
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-    } catch (error) {
-      console.error(`  [${productId}] 处理失败: ${error.message}`);
-      results.push({
-        productId,
-        success: false,
-        error: error.message,
-        status: null
-      });
-
-      // 发生异常时继续下一个
+    if (!record) {
+      batchLogger.error(`未找到商品 ${productId} 的待检测记录`);
       continue;
+    }
+
+    const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+    const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
+    const pendingValue = process.env.FEISHU_STATUS_PENDING_VALUE || '待上传';
+    const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+
+    const newStatus = exists ? doneValue : pendingValue;
+
+    updateRecords.push({
+      record_id: record.record_id,
+      fields: {
+        [statusField]: newStatus
+      }
+    });
+
+    if (exists) {
+      existsCount++;
+    } else {
+      pendingCount++;
+    }
+  }
+
+  // 执行批量更新
+  if (updateRecords.length > 0) {
+    batchLogger.info(`更新 ${updateRecords.length} 条记录到飞书...`);
+    try {
+      const response = await feishuClient.batchUpdateRecords(updateRecords);
+
+      if (response && response.code === 0) {
+        batchLogger.success(`✅ 成功更新 ${updateRecords.length} 条记录`);
+        batchLogger.info(`📊 处理结果: 成功 ${successCount} 个, 已存在 ${existsCount} 个, 待上传 ${pendingCount} 个`);
+      } else {
+        batchLogger.error(`⚠️ 批量更新部分失败，请检查日志`);
+      }
+    } catch (error) {
+      batchLogger.error(`批量更新失败: ${error.message}`);
     }
   }
 
@@ -559,20 +554,17 @@ async function runBatch(productIds) {
   console.log('📊 批量处理结果摘要');
   console.log(`${'='.repeat(80)}`);
 
-  const successCount = results.filter(r => r.success).length;
-  const failureCount = results.length - successCount;
+  console.log(`总计: ${successCount} 个商品`);
+  console.log(`已存在: ${existsCount} 个`);
+  console.log(`待上传: ${pendingCount} 个`);
 
-  console.log(`总计: ${results.length} 个商品`);
-  console.log(`成功: ${successCount} 个`);
-  console.log(`失败: ${failureCount} 个`);
-
-  if (failureCount > 0) {
-    console.log('\n失败列表:');
-    results
-      .filter(r => !r.success)
-      .forEach(r => {
-        console.log(`  - ${r.productId}: ${r.error}`);
-      });
+  // 详细结果列表（可选）
+  if (process.env.verbose) {
+    console.log('\n详细结果:');
+    for (const [productId, exists] of resultMap) {
+      const status = exists ? '✅ 已存在' : '❌ 不存在';
+      console.log(`  ${productId}: ${status}`);
+    }
   }
 
   console.log('\n🎉 批量处理完成！');

@@ -447,12 +447,19 @@ async function checkMultipleProductsExists(productIds) {
         // 判断商品是否存在
         const exists = !emptyVisible && rows > 0;
 
+        // 输出处理结果
         if (exists) {
-          console.log(`✅ 商品 ${productId} 已存在`);
+          console.log(`✅ 商品 ${productId} 已存在 (${rows} 条记录)`);
           resultMap.set(productId, true);
         } else {
-          console.log(`❌ 商品 ${productId} 不存在`);
+          console.log(`❌ 商品 ${productId} 不存在 (空数据: ${emptyVisible})`);
           resultMap.set(productId, false);
+        }
+
+        // 每20个商品打印进度（已禁用截图功能）
+        if ((i + 1) % 20 === 0) {
+          console.log(`📍 [进度] 已处理 ${i + 1}/${productIds.length} 个商品`);
+          console.log(`📍 [进度] 当前商品ID: ${productId} | 查重结果: ${exists ? '已存在' : '不存在'}`);
         }
 
       } catch (error) {

@@ -31,7 +31,15 @@ async function checkPendingProducts() {
       }
 
       console.log('\n批量处理命令:');
-      console.log(`NODE_ENV=development npm run publish -- --batch=${productIds.slice(0, 5).join(',')} --from=0 --to=0 --verbose --screenshot`);
+      // 获取所有有效的商品ID
+      const allProductIds = [];
+      records.forEach((record) => {
+        const productId = record.fields['商品ID'] || '';
+        if (productId && productId !== 'N/A') {
+          allProductIds.push(productId);
+        }
+      });
+      console.log(`NODE_ENV=development npm run publish -- --batch=${allProductIds.join(',')} --from=0 --to=0 --verbose`);
     } else {
       console.log('✅ 没有待检测的商品');
     }
