@@ -46,6 +46,8 @@ const step1 = async (ctx) => {
 
     // 计算每个颜色应该分配的图片数量
     const imagesPerColor = Math.ceil(images.length / colors.length);
+    ctx.logger.info(`找到 ${images.length} 张图片`);
+    ctx.logger.info(`找到 ${colors.length} 个颜色: ${colors.join(', ')}`);
     ctx.logger.info(`每个颜色平均分配约 ${imagesPerColor} 张图片`);
 
     // 下载结果记录
