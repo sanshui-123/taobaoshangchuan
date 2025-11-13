@@ -527,6 +527,36 @@ async function runBatch(productIds) {
 
     if (exists) {
       existsCount++;
+
+      // 为已存在的商品创建缓存并标记步骤状态
+      const { loadTaskCache, saveTaskCache } = require('../utils/cache');
+      const taskCache = loadTaskCache(productId);
+
+      // 初始化步骤状态
+      taskCache.stepStatus = {
+        0: 'done',
+        1: 'skipped',
+        2: 'skipped',
+        3: 'skipped',
+        4: 'skipped',
+        5: 'skipped',
+        6: 'skipped',
+        7: 'skipped',
+        8: 'skipped',
+        9: 'skipped',
+        10: 'skipped',
+        11: 'skipped',
+        12: 'skipped',
+        13: 'skipped',
+        14: 'skipped'
+      };
+
+      // 添加完成时间
+      taskCache.processedAt = new Date().toISOString();
+      taskCache.note = '商品已存在于淘宝，跳过上传流程';
+
+      saveTaskCache(productId, taskCache);
+      batchLogger.info(`  已为 ${productId} 创建缓存并标记后续步骤为skipped`);
     } else {
       pendingCount++;
     }
@@ -607,8 +637,33 @@ async function checkProductExistsAndUpdateStatus(record, ctx) {
         [statusField]: doneValue
       });
 
-      // 更新步骤状态
+      // 更新步骤状态并创建缓存
       updateStepStatus(productId, 0, 'done');
+
+      // 创建完整的任务缓存，标记后续步骤为skipped
+      const { saveTaskCache } = require('../utils/cache');
+      saveTaskCache(productId, {
+        productId,
+        stepStatus: {
+          0: 'done',
+          1: 'skipped',
+          2: 'skipped',
+          3: 'skipped',
+          4: 'skipped',
+          5: 'skipped',
+          6: 'skipped',
+          7: 'skipped',
+          8: 'skipped',
+          9: 'skipped',
+          10: 'skipped',
+          11: 'skipped',
+          12: 'skipped',
+          13: 'skipped',
+          14: 'skipped'
+        },
+        note: '商品已存在于淘宝，跳过上传流程',
+        processedAt: new Date().toISOString()
+      });
     } else {
       // 商品不存在，更新状态为"待上传"
       ctx.logger.info(`商品 ${productId} 不存在于淘宝，更新状态为"${pendingValue}"`);
