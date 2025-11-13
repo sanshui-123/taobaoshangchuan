@@ -20,6 +20,13 @@ const step1 = async (ctx) => {
     // 加载缓存
     const taskCache = loadTaskCache(ctx.productId);
 
+    // 检查步骤状态
+    if (taskCache.stepStatus && taskCache.stepStatus[1] === 'skipped') {
+      ctx.logger.info('⚠️ 步骤1已被跳过，商品已存在于淘宝');
+      updateStepStatus(ctx.productId, 1, 'skipped');
+      return;
+    }
+
     if (!taskCache.productData || !taskCache.productData.images) {
       throw new Error('缓存中没有图片信息，请先执行步骤0');
     }
