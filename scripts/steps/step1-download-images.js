@@ -32,16 +32,21 @@ const step1 = async (ctx) => {
     }
 
     const { productData } = taskCache;
-    const { images, productId } = productData;
+    const { images, productId, colors } = productData;
 
     ctx.logger.info(`商品ID: ${productId}`);
     ctx.logger.info(`找到 ${images.length} 张图片`);
+    ctx.logger.info(`找到 ${colors.length} 个颜色`);
 
     // 创建assets目录结构（只在根目录）
     const baseDir = path.resolve(process.cwd(), 'assets', productId);
     if (!fs.existsSync(baseDir)) {
       fs.mkdirSync(baseDir, { recursive: true });
     }
+
+    // 计算每个颜色应该分配的图片数量
+    const imagesPerColor = Math.ceil(images.length / colors.length);
+    ctx.logger.info(`每个颜色平均分配约 ${imagesPerColor} 张图片`);
 
     // 下载结果记录
     const downloadResults = {
@@ -71,9 +76,14 @@ const step1 = async (ctx) => {
         }
       }
 
+      // 计算当前图片属于哪个颜色（从1开始）
+      const colorIndex = Math.floor(i / imagesPerColor) + 1;
+      // 计算当前颜色下的图片序号（从1开始）
+      const imageIndexInColor = (i % imagesPerColor) + 1;
+
       try {
-        // 构建文件名：a1.jpg, a2.jpg, a3.jpg...
-        const fileName = `a${i + 1}.jpg`;
+        // 构建文件名：color_1_01.jpg, color_1_02.jpg...
+        const fileName = `color_${colorIndex}_${String(imageIndexInColor).padStart(2, '0')}.jpg`;
         const filePath = path.join(baseDir, fileName);
 
         // 检查文件是否已存在
@@ -141,9 +151,10 @@ const step1 = async (ctx) => {
 
       } catch (error) {
         ctx.logger.error(`  ✗ 下载失败: ${error.message}`);
+        const failedFileName = `color_${colorIndex}_${String(imageIndexInColor).padStart(2, '0')}.jpg`;
         downloadResults.failed.push({
           index: i + 1,
-          fileName: `a${i + 1}.jpg`,
+          fileName: failedFileName,
           error: error.message,
           fileToken: imageIdentifier
         });
