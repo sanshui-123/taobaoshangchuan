@@ -188,6 +188,31 @@ const step1 = async (ctx) => {
     ctx.logger.info(`耗时: ${duration.toFixed(2)} 秒`);
     ctx.logger.info(`保存路径: ${baseDir}`);
 
+    // 清理颜色子目录（只保留a1.jpg, a2.jpg等文件）
+    ctx.logger.info('\n🧹 清理颜色子目录...');
+    try {
+      const items = fs.readdirSync(baseDir, { withFileTypes: true });
+      let cleanedDirs = 0;
+
+      for (const item of items) {
+        if (item.isDirectory()) {
+          const dirPath = path.join(baseDir, item.name);
+          // 删除所有子目录（包括颜色目录）
+          fs.rmSync(dirPath, { recursive: true, force: true });
+          ctx.logger.info(`  已删除目录: ${item.name}/`);
+          cleanedDirs++;
+        }
+      }
+
+      if (cleanedDirs > 0) {
+        ctx.logger.success(`  ✓ 清理完成，删除了 ${cleanedDirs} 个子目录`);
+      } else {
+        ctx.logger.info('  ✓ 没有需要清理的子目录');
+      }
+    } catch (error) {
+      ctx.logger.warn(`  ⚠️ 清理目录时出错: ${error.message}`);
+    }
+
     // 更新步骤状态
     updateStepStatus(ctx.productId, 1, 'done');
 
