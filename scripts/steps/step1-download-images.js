@@ -24,24 +24,15 @@ const step1 = async (ctx) => {
     }
 
     const { productData } = taskCache;
-    const { images, colors, productId } = productData;
+    const { images, productId } = productData;
 
     ctx.logger.info(`商品ID: ${productId}`);
-    ctx.logger.info(`找到 ${images.length} 张图片，${colors.length} 个颜色`);
+    ctx.logger.info(`找到 ${images.length} 张图片`);
 
-    // 创建assets目录结构
+    // 创建assets目录结构（只在根目录）
     const baseDir = path.resolve(process.cwd(), 'assets', productId);
     if (!fs.existsSync(baseDir)) {
       fs.mkdirSync(baseDir, { recursive: true });
-    }
-
-    // 为每个颜色创建目录
-    for (let i = 0; i < colors.length; i++) {
-      const colorName = cleanFileName(colors[i].text || colors[i]);
-      const colorDir = path.join(baseDir, `color_${i + 1}`);
-      if (!fs.existsSync(colorDir)) {
-        fs.mkdirSync(colorDir, { recursive: true });
-      }
     }
 
     // 下载结果记录
@@ -51,81 +42,66 @@ const step1 = async (ctx) => {
       total: images.length
     };
 
-    // 按颜色分组下载图片
-    const imagesByColor = groupImagesByColor(images, colors);
-
     // 记录下载开始时间
     const startTime = Date.now();
 
-    // 遍历每个颜色的图片
-    for (let colorIndex = 0; colorIndex < colors.length; colorIndex++) {
-      const color = colors[colorIndex];
-      const colorName = color.text || `颜色${colorIndex + 1}`;
-      const colorImages = imagesByColor[colorIndex] || [];
-      const colorDir = path.join(baseDir, `color_${colorIndex + 1}`);
+    // 遍历原始图片数组，按飞书顺序下载
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
 
-      ctx.logger.info(`处理颜色 ${colorIndex + 1}: ${colorName} (${colorImages.length}张图片)`);
+      try {
+        // 构建文件名：a1.jpg, a2.jpg, a3.jpg...
+        const fileName = `a${i + 1}.jpg`;
+        const filePath = path.join(baseDir, fileName);
 
-      // 每个颜色最多下载6张图片（01-06）
-      const maxImagesPerColor = 6;
-      const imagesToDownload = colorImages.slice(0, maxImagesPerColor);
-
-      for (let imgIndex = 0; imgIndex < imagesToDownload.length; imgIndex++) {
-        const image = imagesToDownload[imgIndex];
-
-        try {
-          // 构建文件名：商品ID_颜色序号-编号.jpg
-          const fileName = `${productId}_${colorIndex + 1}-${String(imgIndex + 1).padStart(2, '0')}.jpg`;
-          const filePath = path.join(colorDir, fileName);
-
-          // 检查文件是否已存在
-          if (fs.existsSync(filePath)) {
-            ctx.logger.info(`  图片已存在: ${fileName}`);
-            downloadResults.success.push({
-              color: colorName,
-              index: imgIndex + 1,
-              fileName,
-              path: filePath,
-              skipped: true
-            });
-            continue;
-          }
-
-          // 从飞书下载图片
-          ctx.logger.info(`  下载图片 ${imgIndex + 1}/${maxImagesPerColor}: ${image.file_token}`);
-          const imageBuffer = await feishuClient.downloadAttachment(image.file_token);
-
-          // 保存图片
-          fs.writeFileSync(filePath, imageBuffer);
-
-          // 验证文件大小
+        // 检查文件是否已存在
+        if (fs.existsSync(filePath)) {
+          ctx.logger.info(`  图片已存在: ${fileName}`);
           const stats = fs.statSync(filePath);
-          if (stats.size === 0) {
-            throw new Error('图片文件为空');
-          }
-
           downloadResults.success.push({
-            color: colorName,
-            index: imgIndex + 1,
+            index: i + 1,
             fileName,
             path: filePath,
+            skipped: true,
             size: stats.size
           });
-
-          ctx.logger.success(`    ✓ 保存成功: ${fileName} (${(stats.size / 1024).toFixed(2)}KB)`);
-
-          // 避免请求过快
-          await new Promise(resolve => setTimeout(resolve, 500));
-
-        } catch (error) {
-          ctx.logger.error(`  ✗ 下载失败: ${error.message}`);
-          downloadResults.failed.push({
-            color: colorName,
-            index: imgIndex + 1,
-            error: error.message,
-            fileToken: image.file_token
-          });
+          continue;
         }
+
+        // 从飞书下载图片
+        ctx.logger.info(`  下载图片 ${i + 1}/${images.length}: ${image.file_token}`);
+        const imageBuffer = await feishuClient.downloadAttachment(image.file_token);
+
+        // 保存图片
+        fs.writeFileSync(filePath, imageBuffer);
+
+        // 验证文件大小
+        const stats = fs.statSync(filePath);
+        if (stats.size === 0) {
+          throw new Error('图片文件为空');
+        }
+
+        downloadResults.success.push({
+          index: i + 1,
+          fileName,
+          path: filePath,
+          skipped: false,
+          size: stats.size
+        });
+
+        ctx.logger.success(`    ✓ 保存成功: ${fileName} (${(stats.size / 1024).toFixed(2)}KB)`);
+
+        // 避免请求过快
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (error) {
+        ctx.logger.error(`  ✗ 下载失败: ${error.message}`);
+        downloadResults.failed.push({
+          index: i + 1,
+          fileName: `a${i + 1}.jpg`,
+          error: error.message,
+          fileToken: image.file_token
+        });
       }
     }
 
@@ -153,12 +129,12 @@ const step1 = async (ctx) => {
       '',
       '=== 成功列表 ===',
       ...downloadResults.success.map(item =>
-        `${item.fileName} - ${item.color} - ${item.skipped ? '已存在' : (item.size ? `${(item.size/1024).toFixed(2)}KB` : '')}`
+        `${item.fileName} - ${item.skipped ? '已存在' : (item.size ? `${(item.size/1024).toFixed(2)}KB` : '')}`
       ),
       '',
       '=== 失败列表 ===',
       ...downloadResults.failed.map(item =>
-        `颜色${item.color} 图片${item.index}: ${item.error}`
+        `图片${item.index}(${item.fileName}): ${item.error}`
       )
     ].join('\n');
 
@@ -186,34 +162,5 @@ const step1 = async (ctx) => {
     process.stdout.write('\n');
   }
 };
-
-/**
- * 清理文件名，移除非法字符
- */
-function cleanFileName(name) {
-  return name
-    .replace(/[\\/:"*?<>|]/g, '_')
-    .replace(/\s+/g, '_')
-    .substring(0, 50);
-}
-
-/**
- * 按颜色分组图片
- * 这里假设images数组已经按颜色分组
- */
-function groupImagesByColor(images, colors) {
-  const grouped = {};
-
-  // 简单分组：假设images按颜色顺序排列
-  const imagesPerColor = Math.ceil(images.length / colors.length);
-
-  for (let i = 0; i < colors.length; i++) {
-    const startIdx = i * imagesPerColor;
-    const endIdx = startIdx + imagesPerColor;
-    grouped[i] = images.slice(startIdx, endIdx);
-  }
-
-  return grouped;
-}
 
 module.exports = { step1 };
