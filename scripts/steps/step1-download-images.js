@@ -1,4 +1,4 @@
-const { feishuClient } = require('../feishu/client');
+const { downloadAttachment } = require('../feishu/client');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const fs = require('fs');
 const path = require('path');
@@ -70,7 +70,7 @@ const step1 = async (ctx) => {
 
         // 从飞书下载图片
         ctx.logger.info(`  下载图片 ${i + 1}/${images.length}: ${image.file_token}`);
-        const imageBuffer = await feishuClient.downloadAttachment(image.file_token);
+        const imageBuffer = await downloadAttachment(image.file_token);
 
         // 保存图片
         fs.writeFileSync(filePath, imageBuffer);

@@ -385,6 +385,56 @@ class FeishuClient {
   }
 
   /**
+   * 下载附件（用于下载图片）
+   * @param {string} fileToken 文件token
+   * @returns {Promise<Buffer>} 图片buffer
+   */
+  async downloadAttachment(fileToken) {
+    const token = await this.getAccessToken();
+    const url = `${this.baseUrl}/open-apis/drive/v1/medias/${fileToken}/download`;
+
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'open.feishu.cn',
+        port: 443,
+        path: `/open-apis/drive/v1/medias/${fileToken}/download`,
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        if (res.statusCode === 302 || res.statusCode === 301) {
+          // 处理重定向
+          https.get(res.headers.location, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+              resolve(Buffer.concat(chunks));
+            });
+          }).on('error', reject);
+        } else if (res.statusCode === 200) {
+          // 直接返回响应数据
+          const chunks = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => {
+            resolve(Buffer.concat(chunks));
+          });
+        } else {
+          reject(new Error(`下载失败，状态码: ${res.statusCode}`));
+        }
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.end();
+    });
+  }
+
+  /**
    * 验证必填字段
    */
   validateRequiredFields(fields, requiredFields = []) {
@@ -419,4 +469,8 @@ const feishuClient = new FeishuClient(
   process.env.FEISHU_TABLE_ID
 );
 
-module.exports = { feishuClient, FeishuClient };
+module.exports = {
+  feishuClient,
+  FeishuClient,
+  downloadAttachment: feishuClient.downloadAttachment.bind(feishuClient)
+};
