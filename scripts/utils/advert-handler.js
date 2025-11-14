@@ -338,8 +338,8 @@ async function closeBottomNotification(page, ctx, results) {
       logVerbose('未找到主要通知弹窗选择器');
     }
 
-    // 备用方案：通过"重要消息"文本查找 - 强化版本
-    logVerbose('备用方案: 严格查找并关闭重要消息弹窗');
+    // 备用方案：通过"重要消息"文本查找 - 安全强化版本（避免误点击）
+    logVerbose('备用方案: 严格查找并关闭重要消息弹窗（安全模式）');
 
     // 方法1: 根据截图精确查找 notify_body__vpaId 弹窗并直接点击关闭按钮
     const notifyBodies = await page.$$('div.notify_body__vpaId, div[class*="notify_body"]');
@@ -459,8 +459,8 @@ async function closeBottomNotification(page, ctx, results) {
 
         logVerbose(`按钮 ${i + 1}: text="${btnText}", class="${btnClass}", visible=${btnVisible}`);
 
-        // 更宽松的条件：包含 close 类名的按钮都尝试，即使不可见
-        if (btnClass.includes('close') || btnClass.includes('icon') || btnText.includes('关闭') || btnText.includes('知道') || btnText.includes('确定')) {
+        // 严格的条件：只点击明确的关闭按钮，避免误点击其他按钮
+        if ((btnClass.includes('close') || btnClass.includes('close_blod') || btnText.includes('关闭') || btnText.includes('×') || (btnClass.includes('icon') && btnClass.includes('next-icon-close'))) && !btnText.includes('查看详情') && !btnText.includes('去处理') && !btnText.includes('立即处理')) {
           logVerbose(`尝试点击按钮 ${i + 1}: text="${btnText}", class="${btnClass}", visible=${btnVisible}`);
 
           try {
@@ -552,6 +552,28 @@ async function closeBottomNotification(page, ctx, results) {
         const text = await elem.textContent().catch(() => '');
         logVerbose(`底部元素 ${i + 1} 可见，文本前50字符: "${text.substring(0, 50)}"`);
       }
+    }
+
+    // 最终安全方案：如果所有方法都失败，尝试直接点击已知的关闭按钮位置
+    logVerbose('最终安全方案：精确定位并点击已知的关闭按钮');
+    try {
+      const exactCloseButton = await page.$('i.next-icon.next-icon-close_blod');
+      if (exactCloseButton) {
+        logVerbose('找到精确的关闭按钮，尝试点击...');
+        await exactCloseButton.click({ force: true });
+        await page.waitForTimeout(1000);
+
+        const stillExists = await page.$('div:has-text("重要消息")').then(el => !!el).catch(() => false);
+        if (!stillExists) {
+          logVerbose('✅ 最终安全方案成功关闭弹窗');
+          results.bottomNotificationClosed = true;
+          results.totalClosed++;
+          ctx.logger.success('已通过精确选择器关闭重要消息弹窗');
+          return;
+        }
+      }
+    } catch (finalError) {
+      logVerbose(`最终安全方案也失败: ${finalError.message}`);
     }
 
     ctx.logger.info('未发现右下角通知弹窗');
