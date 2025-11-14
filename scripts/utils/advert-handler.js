@@ -31,6 +31,9 @@ async function closeMaterialCenterPopups(page) {
     videoDialogClosed: false,
     migrationGuideSkipped: false,
     bottomNotificationClosed: false,
+    authFailureClosed: false,
+    searchPanelClosed: false,
+    importantMessageClosed: false,
     totalClosed: 0
   };
 
@@ -56,10 +59,19 @@ async function closeMaterialCenterPopups(page) {
     // 处理第三个广告：右下角通知弹窗
     await closeBottomNotification(page, ctx, results);
 
+    // 处理第四个弹窗：权限失效弹窗
+    await closeAuthFailureDialog(page, ctx, results);
+
+    // 处理第五个干扰：搜索面板
+    await closeSearchPanel(page, ctx, results);
+
+    // 处理第六个干扰：重要消息浮层
+    await closeImportantMessage(page, ctx, results);
+
     // 输出处理结果
     ctx.logger.success(`广告处理完成 - 共关闭 ${results.totalClosed} 个弹窗`);
     if (results.totalClosed > 0) {
-      ctx.logger.info(`处理详情: 视频${results.videoDialogClosed ? '✓' : '✗'} | 迁移${results.migrationGuideSkipped ? '✓' : '✗'} | 通知${results.bottomNotificationClosed ? '✓' : '✗'}`);
+      ctx.logger.info(`处理详情: 视频${results.videoDialogClosed ? '✓' : '✗'} | 迁移${results.migrationGuideSkipped ? '✓' : '✗'} | 通知${results.bottomNotificationClosed ? '✓' : '✗'} | 权限${results.authFailureClosed ? '✓' : '✗'} | 搜索面板${results.searchPanelClosed ? '✓' : '✗'} | 重要消息${results.importantMessageClosed ? '✓' : '✗'}`);
     } else {
       ctx.logger.info('未检测到广告弹窗');
     }
@@ -585,6 +597,398 @@ async function closeBottomNotification(page, ctx, results) {
 }
 
 /**
+ * 关闭权限失效弹窗
+ * @param {Object} page
+ * @param {Object} ctx
+ * @param {Object} results
+ */
+async function closeAuthFailureDialog(page, ctx, results) {
+  try {
+    ctx.logger.info('检查权限失效弹窗...');
+    logVerbose('开始搜索权限失效弹窗元素...');
+
+    // 等待一下让弹窗可能加载完成
+    await page.waitForTimeout(1000);
+
+    // 方法1: 查找包含"权限已失效"文本的弹窗
+    logVerbose('方法1: 查找包含"权限已失效"文本的弹窗');
+    const authFailureDialog = await page.$('div:has-text("权限已失效"), div:has-text("您的权限已失效")');
+    if (authFailureDialog) {
+      logVerbose('找到权限失效弹窗');
+
+      // 获取弹窗详细信息
+      const dialogText = await authFailureDialog.textContent().catch(() => '');
+      logVerbose(`权限失效弹窗文本: "${dialogText.substring(0, 100)}"`);
+
+      // 优先查找右上角的X关闭按钮（基于截图分析）
+      logVerbose('优先查找右上角X关闭按钮...');
+      const closeButtons = [
+        '.next-icon-close',           // 淘宝通用关闭图标
+        '.next-icon-close_blod',       // 加粗关闭图标
+        '.next-dialog-close',         // 对话框关闭按钮
+        '.modal-close',               // 模态框关闭按钮
+        '[class*="close"]',          // 任何包含close的元素
+        'i.next-icon',               // 图标类型的关闭按钮
+        '.close-icon',                // 通用关闭图标
+        'button[aria-label*="关闭"]', // 无障碍标签
+        'button[title*="关闭"]'      // title属性
+      ];
+
+      for (const selector of closeButtons) {
+        logVerbose(`尝试查找关闭按钮: ${selector}`);
+        const closeButton = await authFailureDialog.$(selector);
+        if (closeButton) {
+          const buttonClass = await closeButton.getAttribute('class').catch(() => '');
+          const isVisible = await closeButton.isVisible().catch(() => false);
+          logVerbose(`找到关闭按钮，class: "${buttonClass}", visible: ${isVisible}`);
+
+          try {
+            // 点击关闭按钮
+            await closeButton.click({ force: true });
+            await page.waitForTimeout(1000);
+
+            // 验证弹窗是否消失
+            const stillExists = await page.$('div:has-text("权限已失效")').then(el => !!el).catch(() => false);
+            if (!stillExists) {
+              logVerbose('✅ 权限失效弹窗已通过X按钮关闭');
+              results.authFailureClosed = true;
+              results.totalClosed++;
+              ctx.logger.success('已关闭权限失效弹窗（X按钮）');
+              logVerbose('通过右上角X按钮关闭成功');
+              return;
+            }
+          } catch (clickError) {
+            logVerbose(`点击X按钮失败: ${clickError.message}`);
+            continue;
+          }
+        }
+      }
+
+      // 如果X按钮失败，再尝试查找"确定"或"重新登录"按钮
+      logVerbose('X按钮失败，尝试确认按钮...');
+      const confirmButtons = [
+        'button:has-text("确定")',
+        'button:has-text("重新登录")',
+        'button:has-text("好的")',
+        'button:has-text("我知道了")',
+        '.next-dialog-footer button',
+        '.next-btn-primary',
+        'button[role="button"]'
+      ];
+
+      for (const selector of confirmButtons) {
+        logVerbose(`尝试查找确认按钮: ${selector}`);
+        const button = await authFailureDialog.$(selector);
+        if (button) {
+          const buttonText = await button.textContent().catch(() => '');
+          logVerbose(`找到确认按钮，文本: "${buttonText}"`);
+
+          try {
+            // 点击按钮关闭弹窗
+            await button.click();
+            await page.waitForTimeout(1000);
+
+            // 验证弹窗是否消失
+            const stillExists = await page.$('div:has-text("权限已失效")').then(el => !!el).catch(() => false);
+            if (!stillExists) {
+              logVerbose('✅ 权限失效弹窗已通过确认按钮关闭');
+              results.authFailureClosed = true;
+              results.totalClosed++;
+              ctx.logger.success('已关闭权限失效弹窗（确认按钮）');
+              logVerbose('通过确认按钮关闭成功');
+              return;
+            }
+          } catch (clickError) {
+            logVerbose(`点击确认按钮失败: ${clickError.message}`);
+            continue;
+          }
+        }
+      }
+
+      // 如果所有按钮都失败，尝试强制关闭弹窗
+      logVerbose('所有按钮都失败，尝试强制关闭弹窗...');
+      try {
+        // 方法1: 按ESC键
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(1000);
+
+        const stillExists = await page.$('div:has-text("权限已失效")').then(el => !!el).catch(() => false);
+        if (!stillExists) {
+          logVerbose('✅ ESC键成功关闭权限失效弹窗');
+          results.authFailureClosed = true;
+          results.totalClosed++;
+          ctx.logger.success('已通过ESC键关闭权限失效弹窗');
+          return;
+        }
+
+        // 方法2: 强制点击关闭图标
+        const closeIcon = await authFailureDialog.$('.next-icon-close, .close-icon, [class*="close"]');
+        if (closeIcon) {
+          await closeIcon.click({ force: true });
+          await page.waitForTimeout(1000);
+
+          const stillExists2 = await page.$('div:has-text("权限已失效")').then(el => !!el).catch(() => false);
+          if (!stillExists2) {
+            logVerbose('✅ 强制点击关闭图标成功');
+            results.authFailureClosed = true;
+            results.totalClosed++;
+            ctx.logger.success('已强制关闭权限失效弹窗');
+            return;
+          }
+        }
+
+        // 方法3: 通过JavaScript强制关闭
+        await page.evaluate((dialog) => {
+          if (dialog) {
+            dialog.style.display = 'none';
+            dialog.remove();
+          }
+        }, authFailureDialog);
+        await page.waitForTimeout(500);
+
+        logVerbose('✅ JavaScript强制关闭完成');
+        results.authFailureClosed = true;
+        results.totalClosed++;
+        ctx.logger.success('已强制移除权限失效弹窗');
+
+      } catch (forceError) {
+        logVerbose(`强制关闭失败: ${forceError.message}`);
+      }
+    } else {
+      logVerbose('未找到权限失效弹窗');
+    }
+
+    // 方法2: 通过更广泛的关键词搜索
+    logVerbose('方法2: 通过更广泛的关键词搜索权限相关弹窗');
+    const authKeywords = [
+      '登录失效',
+      '会话过期',
+      '重新登录',
+      '登录超时',
+      '权限失效',
+      '身份验证失败'
+    ];
+
+    for (const keyword of authKeywords) {
+      const element = await page.$(`div:has-text("${keyword}")`);
+      if (element) {
+        logVerbose(`找到包含"${keyword}"的元素`);
+
+        // 检查是否是弹窗类型
+        const className = await element.getAttribute('class').catch(() => '');
+        const isVisible = await element.isVisible().catch(() => false);
+
+        logVerbose(`元素 class: "${className}", visible: ${isVisible}`);
+
+        if (isVisible && (className.includes('dialog') || className.includes('popup') || className.includes('modal') || className.includes('overlay'))) {
+          logVerbose(`确认是权限相关的弹窗，尝试关闭...`);
+
+          try {
+            // 尝试点击任何关闭按钮
+            const closeButtons = await element.$$('button, .close, [class*="close"], [role="button"]');
+            for (const btn of closeButtons) {
+              const btnText = await btn.textContent().catch(() => '');
+              const btnClass = await btn.getAttribute('class').catch(() => '');
+
+              logVerbose(`找到按钮: text="${btnText}", class="${btnClass}"`);
+
+              if (btnText.includes('确定') || btnText.includes('关闭') || btnText.includes('好的') ||
+                  btnClass.includes('close') || btnClass.includes('primary')) {
+                await btn.click();
+                await page.waitForTimeout(1000);
+
+                results.authFailureClosed = true;
+                results.totalClosed++;
+                ctx.logger.success(`已关闭包含"${keyword}"的权限弹窗`);
+                logVerbose(`权限弹窗（${keyword}）关闭成功`);
+                return;
+              }
+            }
+
+            // 如果没有找到合适的按钮，尝试按ESC键
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(1000);
+
+            results.authFailureClosed = true;
+            results.totalClosed++;
+            ctx.logger.success(`已通过ESC键关闭包含"${keyword}"的权限弹窗`);
+            logVerbose(`权限弹窗（${keyword}）ESC关闭成功`);
+            return;
+
+          } catch (closeError) {
+            logVerbose(`关闭权限弹窗失败: ${closeError.message}`);
+          }
+        }
+      }
+    }
+
+    ctx.logger.info('未发现权限失效弹窗');
+
+  } catch (error) {
+    ctx.logger.info('未发现权限失效弹窗或关闭失败');
+    logVerbose('权限失效弹窗处理异常:', error.message);
+  }
+}
+
+/**
+ * 关闭搜索面板
+ * @param {Object} page
+ * @param {Object} ctx
+ * @param {Object} results
+ */
+async function closeSearchPanel(page, ctx, results) {
+  try {
+    ctx.logger.info('检查搜索面板...');
+    logVerbose('开始搜索搜索面板元素...');
+
+    // 等待一下让搜索面板可能加载完成
+    await page.waitForTimeout(1000);
+
+    logVerbose('查找搜索面板: .qnworkbench_search_panel');
+    const searchPanel = await page.$('.qnworkbench_search_panel');
+    if (searchPanel) {
+      const isVisible = await searchPanel.isVisible().catch(() => false);
+      logVerbose(`搜索面板状态: 可见=${isVisible}`);
+
+      if (isVisible) {
+        // 方法1: 尝试点击右侧的关闭SVG图标
+        logVerbose('尝试点击搜索面板右侧关闭图标...');
+        try {
+          const closeIcon = await searchPanel.$('svg[aria-hidden="true"]');
+          if (closeIcon) {
+            await closeIcon.click();
+            await page.waitForTimeout(1000);
+
+            // 验证搜索面板是否消失
+            const stillExists = await page.$('.qnworkbench_search_panel').then(el => !!el).catch(() => false);
+            if (!stillExists) {
+              logVerbose('✅ 搜索面板已通过关闭图标移除');
+              results.searchPanelClosed = true;
+              results.totalClosed++;
+              ctx.logger.success('已关闭搜索面板');
+              logVerbose('搜索面板关闭成功');
+              return;
+            }
+          } else {
+            logVerbose('未找到搜索面板关闭图标');
+          }
+        } catch (clickError) {
+          logVerbose(`点击搜索面板关闭图标失败: ${clickError.message}`);
+        }
+
+        // 方法2: 如果点击失败，直接用JavaScript移除
+        logVerbose('尝试直接移除搜索面板...');
+        try {
+          await page.evaluate(() => {
+            const panel = document.querySelector('.qnworkbench_search_panel');
+            if (panel) {
+              panel.remove();
+              return true;
+            }
+            return false;
+          });
+          await page.waitForTimeout(500);
+
+          logVerbose('✅ 搜索面板已通过JavaScript移除');
+          results.searchPanelClosed = true;
+          results.totalClosed++;
+          ctx.logger.success('已移除搜索面板');
+          logVerbose('搜索面板移除成功');
+          return;
+        } catch (removeError) {
+          logVerbose(`搜索面板移除失败: ${removeError.message}`);
+        }
+      } else {
+        logVerbose('搜索面板不可见，无需处理');
+      }
+    } else {
+      logVerbose('未找到搜索面板');
+    }
+
+    ctx.logger.info('未发现搜索面板');
+
+  } catch (error) {
+    ctx.logger.info('未发现搜索面板或处理失败');
+    logVerbose('搜索面板处理异常:', error.message);
+  }
+}
+
+/**
+ * 关闭重要消息浮层
+ * @param {Object} page
+ * @param {Object} ctx
+ * @param {Object} results
+ */
+async function closeImportantMessage(page, ctx, results) {
+  try {
+    ctx.logger.info('检查重要消息浮层...');
+    logVerbose('开始搜索重要消息浮层元素...');
+
+    // 等待一下让重要消息浮层可能加载完成
+    await page.waitForTimeout(1000);
+
+    logVerbose('查找重要消息浮层: .FixedList_close__BqrZ7');
+    const importantMessage = await page.$('.FixedList_close__BqrZ7');
+    if (importantMessage) {
+      const isVisible = await importantMessage.isVisible().catch(() => false);
+      logVerbose(`重要消息浮层状态: 可见=${isVisible}`);
+
+      if (isVisible) {
+        try {
+          await importantMessage.click();
+          await page.waitForTimeout(1000);
+
+          // 验证重要消息浮层是否消失
+          const stillExists = await page.$('.FixedList_close__BqrZ7').then(el => !!el).catch(() => false);
+          if (!stillExists) {
+            logVerbose('✅ 重要消息浮层已通过点击关闭');
+            results.importantMessageClosed = true;
+            results.totalClosed++;
+            ctx.logger.success('已点击重要消息关闭按钮');
+            logVerbose('重要消息浮层关闭成功');
+            return;
+          }
+        } catch (clickError) {
+          logVerbose(`点击重要消息关闭按钮失败: ${clickError.message}`);
+
+          // 备用方案：直接移除
+          try {
+            await page.evaluate(() => {
+              const message = document.querySelector('.FixedList_close__BqrZ7');
+              if (message) {
+                message.remove();
+                return true;
+              }
+              return false;
+            });
+            await page.waitForTimeout(500);
+
+            logVerbose('✅ 重要消息浮层已通过JavaScript移除');
+            results.importantMessageClosed = true;
+            results.totalClosed++;
+            ctx.logger.success('已移除重要消息浮层');
+            logVerbose('重要消息浮层移除成功');
+            return;
+          } catch (removeError) {
+            logVerbose(`重要消息浮层移除失败: ${removeError.message}`);
+          }
+        }
+      } else {
+        logVerbose('重要消息浮层不可见，无需处理');
+      }
+    } else {
+      logVerbose('未找到重要消息浮层');
+    }
+
+    ctx.logger.info('未发现重要消息浮层');
+
+  } catch (error) {
+    ctx.logger.info('未发现重要消息浮层或处理失败');
+    logVerbose('重要消息浮层处理异常:', error.message);
+  }
+}
+
+/**
  * 批量关闭多个广告弹窗（用于页面加载后多次调用）
  * @param {Object} page
  * @param {number} maxAttempts 最大尝试次数
@@ -595,6 +999,9 @@ async function closeAllPopups(page, maxAttempts = 3) {
     videoDialogClosed: 0,
     migrationGuideSkipped: 0,
     bottomNotificationClosed: 0,
+    authFailureClosed: 0,
+    searchPanelClosed: 0,
+    importantMessageClosed: 0,
     totalClosed: 0
   };
 
@@ -605,6 +1012,9 @@ async function closeAllPopups(page, maxAttempts = 3) {
     totalResults.videoDialogClosed += result.videoDialogClosed ? 1 : 0;
     totalResults.migrationGuideSkipped += result.migrationGuideSkipped ? 1 : 0;
     totalResults.bottomNotificationClosed += result.bottomNotificationClosed ? 1 : 0;
+    totalResults.authFailureClosed += result.authFailureClosed ? 1 : 0;
+    totalResults.searchPanelClosed += result.searchPanelClosed ? 1 : 0;
+    totalResults.importantMessageClosed += result.importantMessageClosed ? 1 : 0;
     totalResults.totalClosed += result.totalClosed;
 
     // 如果没有找到弹窗，提前退出
