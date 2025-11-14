@@ -3,8 +3,8 @@
   "feishuRecordId": "recv2fMGxgxJsd",
   "createdAt": "2025-11-12T14:04:36.911Z",
   "stepStatus": {
-    "0": "failed",
-    "1": "pending",
+    "0": "done",
+    "1": "done",
     "2": "pending",
     "3": "pending",
     "4": "pending",
@@ -70,22 +70,110 @@
       "XL"
     ]
   },
-  "images": [
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_Ef5ibQpKaGv16y1A.jpg%3F1746779501&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YAlcXGtT2X51EQIR.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_suBLIhP9kuF81wKN.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_sQzFsVcOhcT71MCJ.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ElKhUd3KA8F83csG.jpg%3F1746779496&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_UwIVRbsdIDZ91UxQ.jpg%3F1746779494&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_cFFNeantlES01kFQ.jpg%3F1746779493&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_IirEBJbzSKm675ov.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wJ8bOhb04ii12cjQ.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_uTopabBekm31k9oS.jpg%3F1746779504&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_YOOfqFwVcAA74wnK.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_wf9YmKRUBqq41M0B.jpg%3F1746779503&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ccvtaGMMyXv73E7y.jpg%3F1746779495&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM",
-    "https://www.callawaygolf.jp/_next/image?url=https%3A%2F%2Fcdn2.webdamdb.com%2F1280_ATlfYaYTbrm41QX8.jpg%3F1746779499&w=3000&q=90&dpl=dpl_Ao26Gpwdy9CAzKcGNxzoedVyQtjM"
-  ],
+  "images": {
+    "success": [
+      {
+        "index": 1,
+        "fileName": "color_1_01.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_01.jpg",
+        "skipped": false,
+        "size": 151116
+      },
+      {
+        "index": 2,
+        "fileName": "color_1_02.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_02.jpg",
+        "skipped": false,
+        "size": 292959
+      },
+      {
+        "index": 3,
+        "fileName": "color_1_03.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_03.jpg",
+        "skipped": false,
+        "size": 194009
+      },
+      {
+        "index": 4,
+        "fileName": "color_1_04.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_04.jpg",
+        "skipped": false,
+        "size": 275205
+      },
+      {
+        "index": 5,
+        "fileName": "color_1_05.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_05.jpg",
+        "skipped": false,
+        "size": 461569
+      },
+      {
+        "index": 6,
+        "fileName": "color_1_06.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_06.jpg",
+        "skipped": false,
+        "size": 375940
+      },
+      {
+        "index": 7,
+        "fileName": "color_1_07.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_07.jpg",
+        "skipped": false,
+        "size": 522356
+      },
+      {
+        "index": 8,
+        "fileName": "color_1_08.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_1_08.jpg",
+        "skipped": false,
+        "size": 443770
+      },
+      {
+        "index": 10,
+        "fileName": "color_2_02.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_2_02.jpg",
+        "skipped": false,
+        "size": 217700
+      },
+      {
+        "index": 11,
+        "fileName": "color_2_03.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_2_03.jpg",
+        "skipped": false,
+        "size": 153984
+      },
+      {
+        "index": 12,
+        "fileName": "color_2_04.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_2_04.jpg",
+        "skipped": false,
+        "size": 233995
+      },
+      {
+        "index": 13,
+        "fileName": "color_2_05.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_2_05.jpg",
+        "skipped": false,
+        "size": 393090
+      },
+      {
+        "index": 14,
+        "fileName": "color_2_06.jpg",
+        "path": "/Users/sanshui/Desktop/tbzhuaqu/assets/C25117160/color_2_06.jpg",
+        "skipped": false,
+        "size": 299206
+      }
+    ],
+    "failed": [
+      {
+        "index": 9,
+        "fileName": "color_2_01.jpg",
+        "error": "socket hang up",
+        "fileToken": "https://cdn2.webdamdb.com/1280_wJ8bOhb04ii12cjQ.jpg?1746779503"
+      }
+    ],
+    "total": 14
+  },
   "colors": [
     "黑色",
     "白色"
