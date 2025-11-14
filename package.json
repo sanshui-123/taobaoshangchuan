@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "publish": "node scripts/publish.js",
-    "login": "node login.js"
+    "login": "node login.js",
+    "start-chrome": "node start-chrome.js start",
+    "check-env": "node restore-env.js check",
+    "restore-env": "node restore-env.js restore"
   },
   "keywords": [
     "taobao",
