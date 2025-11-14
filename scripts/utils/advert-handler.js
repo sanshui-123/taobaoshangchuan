@@ -24,9 +24,12 @@ function logVerbose(message, data = null) {
 /**
  * 关闭素材库页面的广告弹窗
  * @param {Object} page - Playwright页面对象
+ * @param {Object} options - 配置选项
+ * @param {boolean} options.forceRemoveSearchPanel - 强制移除搜索面板
  * @returns {Promise<Object>} 处理结果统计
  */
-async function closeMaterialCenterPopups(page) {
+async function closeMaterialCenterPopups(page, options = {}) {
+  const { forceRemoveSearchPanel = false } = options;
   const results = {
     videoDialogClosed: false,
     migrationGuideSkipped: false,
@@ -48,6 +51,81 @@ async function closeMaterialCenterPopups(page) {
   ctx.logger.info('开始检查素材库页面广告弹窗...');
   logVerbose('当前页面 URL:', page.url());
   logVerbose('页面标题:', await page.title().catch(() => 'N/A'));
+
+  // 🚨 强制清理搜索面板 - 仅在明确要求时执行
+  if (forceRemoveSearchPanel) {
+    ctx.logger.info('强制清理顶部搜索面板及相关干扰元素...');
+    try {
+      const removedElements = await page.evaluate(() => {
+        let removedCount = 0;
+        const selectors = [
+          '#qnworkbench_search_panel',
+          '.qnworkbench_search_panel',
+          '.NewSearchPanel_searchPanel__*',
+          '.qnworkbench_SearchPop__*',
+          '[id*="search_panel"]',
+          '[class*="SearchPanel"]',
+          '[class*="searchPanel"]'
+        ];
+
+        // 移除指定的选择器
+        selectors.forEach(selector => {
+          try {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(element => {
+              element.remove();
+              removedCount++;
+            });
+          } catch (e) {
+            console.log('移除元素时出错:', selector, e.message);
+          }
+        });
+
+        // 额外清理：查找包含"搜索"相关的顶层遮罩
+        const allElements = document.querySelectorAll('*');
+        allElements.forEach(element => {
+          const className = element.className || '';
+          const id = element.id || '';
+          const style = element.style || {};
+
+          // 检查是否为搜索相关的遮罩层
+          if (
+            (typeof className === 'string' && (
+              className.includes('SearchPanel') ||
+              className.includes('searchPanel') ||
+              className.includes('qnworkbench')
+            )) ||
+            (typeof id === 'string' && (
+              id.includes('search') ||
+              id.includes('Search')
+            )) ||
+            (style.position === 'fixed' && style.zIndex > 1000 && (
+              element.textContent && element.textContent.includes('搜索')
+            ))
+          ) {
+            if (element.tagName === 'DIV' &&
+                (style.position === 'fixed' || style.position === 'absolute')) {
+              element.remove();
+              removedCount++;
+            }
+          }
+        });
+
+        return removedCount;
+      });
+
+      if (removedElements > 0) {
+        ctx.logger.success(`已强制清理 ${removedElements} 个搜索面板干扰元素`);
+        results.searchPanelClosed = true;
+        results.totalClosed++;
+      } else {
+        ctx.logger.info('未发现搜索面板干扰元素');
+      }
+    } catch (clearError) {
+      ctx.logger.warn(`强制清理搜索面板时出现异常: ${clearError.message}`);
+      logVerbose('清理异常详情:', clearError);
+    }
+  }
 
   try {
     // 处理第一个广告：视频弹窗

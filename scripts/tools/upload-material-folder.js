@@ -130,12 +130,63 @@ async function waitForUploadComplete(page) {
     const maxProgressChecks = 20; // 最多检查20次，每次3秒，总共60秒
 
     while (progressCheckCount < maxProgressChecks) {
-      const progressElements = await page.$$('.upload-progress, [class*="uploading"], [class*="progress"]');
-      const loadingElements = await page.$$('.next-loading, [class*="loading"]');
+      // 使用更精确的进度条选择器，避免静态UI元素干扰
+      const progressElements = await page.$$([
+        '.upload-progress-bar',
+        '.upload-progress:visible',
+        '[class*="upload-progress"]',
+        '.file-upload-progress',
+        '.material-upload-progress',
+        'img[alt*="uploading"]',
+        '.uploading-file'
+      ].join(', '));
+
+      const loadingElements = await page.$$([
+        '.upload-loading',
+        '.file-uploading',
+        '.material-uploading',
+        '[class*="upload-loading"]',
+        'button:has-text("上传中")',
+        '.status-uploading'
+      ].join(', '));
 
       logVerbose(`第${progressCheckCount + 1}次检查进度条: 进度条${progressElements.length}个, 加载中${loadingElements.length}个`);
 
-      if (progressElements.length === 0 && loadingElements.length === 0) {
+      // 检查进度条是否真的在变化（避免静态元素）
+      let hasActiveProgress = false;
+      if (progressElements.length > 0) {
+        // 检查进度条是否有动态属性（如style, aria-valuenow等）
+        for (const element of progressElements) {
+          try {
+            const style = await element.getAttribute('style');
+            const ariaValue = await element.getAttribute('aria-valuenow');
+            const width = await element.getAttribute('width');
+
+            // 如果有动态属性，认为是活跃的进度条
+            if (style || ariaValue || width) {
+              hasActiveProgress = true;
+              break;
+            }
+          } catch (e) {
+            // 如果检查失败，保守起见认为可能还在上传
+            hasActiveProgress = true;
+            break;
+          }
+        }
+      }
+
+      // 检查是否有活跃的上传状态
+      const hasActiveLoading = loadingElements.length > 0 && await Promise.any(
+        loadingElements.map(async (element) => {
+          try {
+            return await element.isVisible();
+          } catch (e) {
+            return false;
+          }
+        })
+      ).catch(() => false);
+
+      if (!hasActiveProgress && !hasActiveLoading) {
         log('所有上传进度已完成', 'success');
         break;
       }
@@ -290,9 +341,9 @@ async function uploadImages(productId) {
     log('Chrome连接成功');
     logVerbose('当前页面URL', page.url());
 
-    // 步骤1: 关闭广告弹窗
-    log('步骤1: 关闭广告弹窗...');
-    const adResult = await closeMaterialCenterPopups(page);
+    // 步骤1: 关闭广告弹窗并强制清理搜索面板
+    log('步骤1: 关闭广告弹窗并强制清理搜索面板...');
+    const adResult = await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
     log(`广告处理完成: 关闭了 ${adResult.totalClosed} 个弹窗`, 'success');
     logVerbose('广告处理详情', adResult);
 
@@ -375,8 +426,27 @@ async function uploadImages(productId) {
       throw new Error('未找到新建文件夹按钮');
     }
 
-    await createButton.click();
-    log('点击了新建文件夹按钮', 'success');
+    // 处理可能的遮挡元素，使用强制点击
+    log('使用强制点击新建文件夹按钮，避免遮挡元素干扰...');
+    try {
+      await createButton.click({ force: true });
+      log('点击了新建文件夹按钮', 'success');
+    } catch (clickError) {
+      log(`普通点击失败，尝试移除遮挡元素: ${clickError.message}`);
+
+      // 移除遮挡的元素
+      await page.evaluate(() => {
+        const blockingElements = document.querySelectorAll('.NewTabItemContainer_container__0Mcrw, [class*="NewTabItemContainer"]');
+        blockingElements.forEach(element => {
+          element.style.pointerEvents = 'none';
+          element.style.zIndex = '-1';
+        });
+      });
+
+      // 再次尝试点击
+      await createButton.click({ force: true });
+      log('点击了新建文件夹按钮（移除遮挡后）', 'success');
+    }
 
     // 等待弹窗出现
     log('等待新建文件夹弹窗出现...');
@@ -533,11 +603,14 @@ async function uploadImages(productId) {
           // 截图确认文件夹在左侧树中可见
           logVerbose('截图保存文件夹创建证据...');
           try {
-            await page.screenshot({
-              path: `step5-folder-created-${productId}.png`,
-              fullPage: false,
-              type: 'png'
-            });
+            await Promise.race([
+              page.screenshot({
+                path: `step5-folder-created-${productId}.png`,
+                fullPage: false,
+                type: 'png'
+              }),
+              new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
+            ]);
             log(`📸 已保存文件夹创建截图: step5-folder-created-${productId}.png`);
           } catch (e) {
             log('⚠️ 截图保存失败，但继续执行', 'warning');
@@ -586,10 +659,41 @@ async function uploadImages(productId) {
 
         await page.waitForTimeout(1000);
 
-        // 获取文件夹元素
-        const folderElement = await page.$(foundFolderSelector);
+        // 更精确的文件夹定位策略
+        logVerbose('开始精确定位文件夹...');
+
+        // 先清理所有可能的弹窗干扰
+        await closeMaterialCenterPopups(page);
+        await page.waitForTimeout(1000);
+
+        // 使用更具体的选择器，确保点击的是文件夹节点而不是广告
+        const preciseFolderSelectors = [
+          `li.next-tree-node[title="${productId}"] .next-tree-node-content`,
+          `li.next-tree-node:has-text("${productId}") .next-tree-node-content`,
+          `[title="${productId}"] .next-tree-node-title`,
+          `li.next-tree-node:has-text("${productId}"):not(.ad):not(.popup)`
+        ];
+
+        let folderElement = null;
+        let usedSelector = null;
+
+        for (const selector of preciseFolderSelectors) {
+          try {
+            const element = await page.$(selector);
+            if (element) {
+              folderElement = element;
+              usedSelector = selector;
+              logVerbose(`✅ 找到精确文件夹元素: ${selector}`);
+              break;
+            }
+          } catch (e) {
+            logVerbose(`选择器失败: ${selector}`, e);
+            continue;
+          }
+        }
+
         if (!folderElement) {
-          throw new Error(`无法获取文件夹元素: ${foundFolderSelector}`);
+          throw new Error(`无法精确获取文件夹元素: ${productId}`);
         }
 
         // 滚动到可见位置
@@ -597,39 +701,115 @@ async function uploadImages(productId) {
         await folderElement.scrollIntoViewIfNeeded();
         await page.waitForTimeout(500);
 
-        // 使用两次单击代替双击
-        logVerbose('第一次点击文件夹...');
-        await folderElement.click({ force: true });
-        await page.waitForTimeout(200);
+        // 再次清理广告弹窗，确保点击不受干扰
+        logVerbose('点击前再次清理弹窗...');
+        await closeMaterialCenterPopups(page);
 
-        logVerbose('第二次点击文件夹（进入）...');
-        await folderElement.click({ force: true });
+        // 等待并确保没有遮罩层
+        await page.waitForTimeout(1000);
 
-        // 等待页面响应
-        await page.waitForTimeout(3000);
+        // 使用真正的双击方法进入文件夹
+        logVerbose(`使用选择器进行双击操作: ${usedSelector}`);
+
+        // 确保文件夹可见并获得焦点
+        logVerbose('确保文件夹可见并获取焦点...');
+        await folderElement.scrollIntoViewIfNeeded();
+        await folderElement.hover(); // 鼠标悬停
+        await page.waitForTimeout(1000);
+
+        // 第一次单击：选中文件夹
+        logVerbose('第一次单击：选中文件夹...');
+        await folderElement.click({ force: true });
+        await page.waitForTimeout(500);
+
+        // 真正的双击：进入文件夹
+        logVerbose('执行真正的双击进入文件夹...');
+        await folderElement.dblclick({ force: true });
+        await page.waitForTimeout(1000);
+
+        // 等待页面响应和加载
+        await page.waitForTimeout(4000);
 
         // 验证是否成功进入文件夹
         logVerbose('验证是否进入文件夹...');
 
-        // 检查是否有"暂无图片"或相关提示
-        const successIndicators = [
-          'text=暂无图片',
-          'text=暂无内容',
-          'text=点击上传文件',
-          'text=上传文件',
-          'button:has-text("上传文件")'
-        ];
+        // 更精确的文件夹进入验证机制
+        logVerbose('开始精确验证是否进入文件夹...');
 
+        // 方法1：检查面包屑导航是否显示当前文件夹
         let successConfirmed = false;
-        for (const indicator of successIndicators) {
-          try {
-            await page.waitForSelector(indicator, { timeout: 3000 });
-            successConfirmed = true;
-            log(`✅ 确认进入文件夹，发现提示: ${indicator}`, 'success');
-            break;
-          } catch (e) {
-            continue;
+        let breadcrumbFound = false;
+
+        try {
+          const breadcrumbSelectors = [
+            `text=全部图片/2026/${productId}`,
+            `text=*/${productId}`,
+            `text=${productId}`,
+            '.breadcrumb:has-text("' + productId + '")'
+          ];
+
+          for (const breadcrumb of breadcrumbSelectors) {
+            try {
+              await page.waitForSelector(breadcrumb, { timeout: 2000 });
+              breadcrumbFound = true;
+              logVerbose(`✅ 找到面包屑导航: ${breadcrumb}`);
+              break;
+            } catch (e) {
+              continue;
+            }
           }
+
+          // 方法2：检查URL是否包含文件夹路径
+          const currentUrl = page.url();
+          if (currentUrl.includes(productId) ||
+              (currentUrl.includes('sucai-tu') && breadcrumbFound)) {
+            successConfirmed = true;
+            logVerbose(`✅ URL验证通过: ${currentUrl}`);
+          }
+
+          // 方法3：检查文件夹标题或当前路径指示器
+          if (!successConfirmed) {
+            const pathIndicators = [
+              `text=${productId}`,
+              '.folder-name:has-text("' + productId + '")',
+              '[class*="current"]:has-text("' + productId + '")'
+            ];
+
+            for (const indicator of pathIndicators) {
+              try {
+                const element = await page.$(indicator);
+                if (element && await element.isVisible()) {
+                  successConfirmed = true;
+                  logVerbose(`✅ 找到路径指示器: ${indicator}`);
+                  break;
+                }
+              } catch (e) {
+                continue;
+              }
+            }
+          }
+
+          // 方法4：检查是否真的在文件夹内（而不是根目录）
+          if (!successConfirmed) {
+            // 确保不在根目录 - 检查根目录的特有元素是否存在
+            const isRootFolder = await page.$('text=全部图片, text=2026, li.next-tree-node:has-text("2026").expanded');
+
+            // 如果找到了根目录的2026文件夹，且它处于展开状态，说明还在根目录
+            if (isRootFolder) {
+              logVerbose('⚠️ 检测到仍在根目录，未成功进入文件夹');
+              successConfirmed = false;
+            } else {
+              // 检查是否有上传按钮（文件夹内有上传按钮）
+              const uploadButton = await page.$('button:has-text("上传文件")');
+              if (uploadButton) {
+                successConfirmed = true;
+                logVerbose('✅ 检测到上传按钮，确认在文件夹内');
+              }
+            }
+          }
+
+        } catch (error) {
+          logVerbose('验证过程中出现错误:', error);
         }
 
         if (successConfirmed) {
@@ -639,14 +819,18 @@ async function uploadImages(productId) {
 
           // 保存进入文件夹的截图，确认"暂无图片"
           try {
-            await page.screenshot({
-              path: `step5-folder-empty-${productId}.png`,
-              fullPage: false,
-              type: 'png'
-            });
+            // 使用较短的超时时间，避免卡住
+            await Promise.race([
+              page.screenshot({
+                path: `step5-folder-empty-${productId}.png`,
+                fullPage: false,
+                type: 'png'
+              }),
+              new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
+            ]);
             log(`📸 已保存空文件夹截图: step5-folder-empty-${productId}.png`);
           } catch (e) {
-            logVerbose('保存空文件夹截图失败', e);
+            log(`⚠️ 截图保存失败，但继续执行: ${e.message}`, 'warning');
           }
         } else {
           log('⚠️ 点击完成但未确认进入文件夹', 'warning');
@@ -741,11 +925,14 @@ async function uploadImages(productId) {
 
       // 保存上传完成截图
       try {
-        await page.screenshot({
-          path: `step5-upload-finished-${productId}.png`,
-          fullPage: false,
-          type: 'png'
-        });
+        await Promise.race([
+          page.screenshot({
+            path: `step5-upload-finished-${productId}.png`,
+            fullPage: false,
+            type: 'png'
+          }),
+          new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
+        ]);
         log(`📸 已保存上传完成截图: step5-upload-finished-${productId}.png`);
       } catch (e) {
         log('⚠️ 上传完成截图保存失败', 'warning');
@@ -769,11 +956,14 @@ async function uploadImages(productId) {
     // 保存错误截图
     if (page) {
       try {
-        await page.screenshot({
-          path: `step5-upload-error-${productId}.png`,
-          fullPage: false,
-          type: 'png'
-        });
+        await Promise.race([
+          page.screenshot({
+            path: `step5-upload-error-${productId}.png`,
+            fullPage: false,
+            type: 'png'
+          }),
+          new Promise(resolve => setTimeout(resolve, 5000)) // 5秒超时
+        ]);
         log(`错误截图已保存: step5-upload-error-${productId}.png`, 'warning');
       } catch (e) {
         logVerbose('保存错误截图失败', e);
