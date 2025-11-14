@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
+const { closeMaterialCenterPopups } = require('../utils/advert-handler');
 
 /**
  * 步骤5：上传1:1主图
@@ -41,8 +42,12 @@ const step5 = async (ctx) => {
     // 步骤1：点击素材库按钮
     ctx.logger.info('\n[步骤1] 点击素材库按钮');
     await page.click('.next-tabs-tab:has-text("素材库")');
-    await page.waitForTimeout(1000);
-    ctx.logger.success('✅ 已点击素材库');
+    await page.waitForTimeout(2000); // 等待页面加载
+
+    // 处理素材库页面的广告弹窗
+    ctx.logger.info('\n[步骤1.5] 处理广告弹窗');
+    await closeMaterialCenterPopups(page);
+    ctx.logger.success('✅ 素材库页面已清理广告弹窗');
 
     // 步骤2：点击图片上传按钮
     ctx.logger.info('\n[步骤2] 点击图片上传按钮');
@@ -281,7 +286,11 @@ async function applyFallbackStrategy(page, productId, ctx) {
   try {
     // 重新打开上传对话框
     await page.click('.next-tabs-tab:has-text("素材库")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
+
+    // 处理素材库页面的广告弹窗
+    await closeMaterialCenterPopups(page);
+
     await page.click('.next-tabs-tab:has-text("图片")');
     await page.click('text=上传图片');
     await page.waitForTimeout(2000);
