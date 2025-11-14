@@ -8,19 +8,36 @@ const { closeMaterialCenterPopups, closeAllPopups } = require('./scripts/utils/a
 
 async function testAdvertHandler() {
   console.log('🧪 开始测试广告处理模块...');
+  console.log('🔗 连接到当前运行的 Chrome (端口 9222)...');
 
   let browser;
   let page;
 
   try {
-    // 启动浏览器
-    browser = await chromium.launch({
-      headless: false,
-      slowMo: 1000 // 减慢操作速度便于观察
-    });
+    // 连接到当前运行的 Chrome
+    browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+    console.log('✅ Chrome 连接成功');
 
-    const context = await browser.newContext();
-    page = await context.newPage();
+    // 获取或创建 context
+    const contexts = browser.contexts();
+    let context;
+    if (contexts.length > 0) {
+      context = contexts[0];
+      console.log('✅ 使用现有 context');
+    } else {
+      context = await browser.newContext();
+      console.log('✅ 创建新 context');
+    }
+
+    // 获取现有页面或创建新页面
+    const existingPages = context.pages();
+    if (existingPages.length > 0) {
+      page = existingPages[0];
+      console.log('✅ 使用现有页面');
+    } else {
+      page = await context.newPage();
+      console.log('✅ 创建新页面');
+    }
 
     // 访问素材库页面
     console.log('🌐 访问素材库页面...');
@@ -64,10 +81,8 @@ async function testAdvertHandler() {
     }
 
   } finally {
-    // 清理资源
-    if (browser) {
-      await browser.close();
-    }
+    // 不关闭 browser，因为我们复用现有的 Chrome 实例
+    console.log('🔄 保持 Chrome 实例运行，供后续流程复用');
   }
 }
 
