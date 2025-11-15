@@ -897,70 +897,8 @@ async function uploadImages(productId) {
       await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
       await page.waitForTimeout(2000);
 
-      // 导航到 ${productId} 目录（根目录下）
-      log(`尝试进入根目录下的文件夹: ${productId}...`);
-
-      // 查找并点击文件夹（在根目录"全部图片"下）
-      const folderSelectors = [
-        `li.next-tree-node[title="${productId}"]`,
-        `li.next-tree-node:has-text("${productId}")`
-      ];
-
-      let foundFolder = false;
-      for (const selector of folderSelectors) {
-        try {
-          const folder = await page.$(selector);
-          if (folder) {
-            await folder.click();
-            await page.waitForTimeout(2000);
-            log(`✅ 已点击文件夹: ${productId}`, 'success');
-            foundFolder = true;
-            break;
-          }
-        } catch (e) {
-          logVerbose(`选择器 ${selector} 未找到文件夹`);
-        }
-      }
-
-      if (!foundFolder) {
-        log('⚠️ 未在左侧树中找到文件夹，尝试在右侧双击', 'warning');
-        // 尝试在右侧找到并双击
-        const rightSideFolder = await page.$(`div:has-text("${productId}")`);
-        if (rightSideFolder) {
-          await rightSideFolder.dblclick();
-          await page.waitForTimeout(2000);
-        }
-      }
-
-      // 验证面包屑（根目录下）
-      const breadcrumbVerify = await page.$(`text=全部图片/${productId}`);
-      if (breadcrumbVerify) {
-        log(`✅ 面包屑验证成功: 全部图片/${productId}`, 'success');
-      } else {
-        log('⚠️ 面包屑验证失败，可能不在正确目录', 'warning');
-      }
-
-      // 检查是否有 color_ 图片
-      await page.waitForTimeout(2000);
-      const colorImages = await page.$$('img[src*="color_"]');
-      log(`📊 在目录中找到 ${colorImages.length} 个 color_ 图片`, colorImages.length > 0 ? 'success' : 'warning');
-
-      // 保存上传完成截图
-      try {
-        await Promise.race([
-          page.screenshot({
-            path: `step5-upload-finished-${productId}.png`,
-            fullPage: false,
-            type: 'png'
-          }),
-          new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
-        ]);
-        log(`📸 已保存上传完成截图: step5-upload-finished-${productId}.png`);
-      } catch (e) {
-        log('⚠️ 上传完成截图保存失败', 'warning');
-        logVerbose('截图失败详情', e);
-      }
-
+      // 上传完成后直接返回成功，省去耗时的目录验证和截图
+      log('🚀 上传任务完成，跳过目录验证以提升速度', 'success');
       return {
         success: true,
         productId,
