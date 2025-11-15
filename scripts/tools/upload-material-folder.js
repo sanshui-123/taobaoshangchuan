@@ -103,6 +103,15 @@ async function handleFileUploadDialog(page, productId, localFolder, files) {
     // 选择文件进行上传
     await fileInput.setInputFiles(filePaths);
 
+    // 部分系统会在 setInputFiles 后保留原生文件选择框，再次发送 ESC 以确保关闭
+    try {
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Escape');
+      logVerbose('已发送 ESC 关闭残留的文件选择框');
+    } catch (escError) {
+      logVerbose(`发送 ESC 关闭文件选择框失败: ${escError.message}`);
+    }
+
     log(`已选择 ${filePaths.length} 个文件进行上传`, 'success');
 
     return true;
@@ -111,6 +120,102 @@ async function handleFileUploadDialog(page, productId, localFolder, files) {
     log(`文件上传对话框处理失败: ${error.message}`, 'error');
     logVerbose('详细错误信息', error);
     return false;
+  }
+}
+
+/**
+ * 确保文件夹已展开
+ */
+async function ensureFolderExpanded(page, folderLabel) {
+  logVerbose(`检查文件夹 ${folderLabel} 是否已展开...`);
+
+  try {
+    // 查找文件夹节点
+    const folderNode = await page.$(`li.next-tree-node:has-text("${folderLabel}")`);
+
+    if (!folderNode) {
+      logVerbose(`未找到文件夹 ${folderLabel}`);
+      return false;
+    }
+
+    // 检查是否已展开
+    const isExpanded = await folderNode.evaluate(el => {
+      const switcher = el.querySelector('.next-tree-switcher');
+      if (!switcher) return null;
+      return switcher.getAttribute('aria-expanded') === 'true';
+    });
+
+    if (isExpanded === null) {
+      logVerbose(`文件夹 ${folderLabel} 没有展开按钮（可能是叶子节点）`);
+      return true;
+    }
+
+    if (isExpanded) {
+      log(`文件夹 ${folderLabel} 已经展开`, 'success');
+      return true;
+    }
+
+    // 如果未展开，点击展开按钮
+    logVerbose(`文件夹 ${folderLabel} 未展开，准备点击展开按钮...`);
+    const switcher = await page.$(`li.next-tree-node:has-text("${folderLabel}") .next-tree-switcher`);
+
+    if (switcher) {
+      await switcher.click();
+      log(`✅ 已展开 ${folderLabel} 子树`, 'success');
+      await page.waitForTimeout(2000); // 等待子节点加载
+      return true;
+    } else {
+      logVerbose(`未找到文件夹 ${folderLabel} 的展开按钮`);
+      return false;
+    }
+
+  } catch (error) {
+    logVerbose(`展开文件夹 ${folderLabel} 失败: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 强制移除顶部搜索面板并保持持续清理
+ */
+async function forceRemoveSearchPanel(page, reason = '通用') {
+  try {
+    logVerbose(`强制清理搜索面板（原因: ${reason}）...`);
+    const removedCount = await page.evaluate(() => {
+      if (!window.__forceRemoveSearchPanel) {
+        window.__forceRemoveSearchPanel = () => {
+          const selectors = [
+            '#qnworkbench_search_panel',
+            '.qnworkbench_search_panel',
+            '[class*="SearchPanel"]',
+            '[class*="searchPanel"]'
+          ];
+          let removed = 0;
+          selectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(el => {
+              el.remove();
+              removed++;
+            });
+          });
+          return removed;
+        };
+      }
+
+      const removedNow = window.__forceRemoveSearchPanel();
+
+      if (!window.__searchPanelObserver) {
+        window.__searchPanelObserver = new MutationObserver(() => {
+          window.__forceRemoveSearchPanel();
+        });
+        window.__searchPanelObserver.observe(document.body, { childList: true, subtree: true });
+      }
+
+      return removedNow;
+    });
+
+    logVerbose(`搜索面板移除数量: ${removedCount}`);
+  } catch (error) {
+    logVerbose(`强制清理搜索面板失败: ${error.message}`);
   }
 }
 
@@ -360,14 +465,14 @@ async function uploadImages(productId) {
     }
     log(`本地验证通过: 找到 ${localData.files.length} 个图片文件`, 'success');
 
-    // 步骤4: 点击2026文件夹
+    // 步骤4: 点击2026文件夹并进入
     log('步骤4: 点击左侧2026文件夹...');
 
-    // 在点击2026文件夹前，先清理所有弹窗和干扰层
-    logVerbose('点击2026文件夹前清理弹窗...');
+    // 清理弹窗
     await closeMaterialCenterPopups(page);
+    await page.waitForTimeout(1000);
 
-    // 等待页面加载完成，查找2026文件夹（使用正确的选择器）
+    // 展开并点击2026文件夹
     const year2026Selectors = [
       'li.next-tree-node:has-text("2026")',
       '.next-tree-node-label:has-text("2026")',
@@ -380,8 +485,8 @@ async function uploadImages(productId) {
         logVerbose(`尝试选择器: ${selector}`);
         await page.waitForSelector(selector, { timeout: 5000 });
         await page.click(selector);
-        log('成功点击2026文件夹', 'success');
-        await page.waitForTimeout(2000); // 等待文件夹加载
+        log('✅ 成功点击2026文件夹', 'success');
+        await page.waitForTimeout(2000);
         clickSuccess = true;
         break;
       } catch (error) {
@@ -394,15 +499,45 @@ async function uploadImages(productId) {
       throw new Error('无法找到或点击2026文件夹');
     }
 
-    // 步骤5: 创建新文件夹
-    log('步骤5: 创建新商品文件夹...');
+    // 步骤5: 检查文件夹是否已存在并创建
+    log('步骤5: 检查并创建商品文件夹...');
 
-    // 在创建文件夹前清理所有弹窗和干扰层
-    logVerbose('创建文件夹前清理弹窗...');
-    await closeMaterialCenterPopups(page);
+    // 初始化跳过标志
+    let skipFolderCreation = false;
 
-    // 查找新建文件夹按钮
-    const createFolderSelectors = [
+    // 通过面包屑检查是否已经在目标文件夹中
+    const breadcrumbSelectors = [
+      `text=全部图片/2026/${productId}`,
+      `text=2026/${productId}`,
+      `text=/${productId}`
+    ];
+
+    let alreadyInFolder = false;
+    for (const selector of breadcrumbSelectors) {
+      try {
+        const breadcrumb = await page.$(selector);
+        if (breadcrumb) {
+          log(`✅ 已在目标文件夹中: ${productId}`, 'success');
+          alreadyInFolder = true;
+          skipFolderCreation = true;
+          break;
+        }
+      } catch (e) {
+        logVerbose(`面包屑选择器 ${selector} 未找到`);
+      }
+    }
+
+    // 如果已经在文件夹中，直接跳到上传步骤
+    if (alreadyInFolder) {
+      log(`📂 已在文件夹 ${productId} 中，直接开始上传...`, 'success');
+      skipFolderCreation = true;
+    }
+
+    // 如果不在目标文件夹中，创建新文件夹
+    if (!skipFolderCreation) {
+
+      // 查找新建文件夹按钮
+      const createFolderSelectors = [
       'button:has-text("新建文件夹")',
       'button[title*="新建文件夹"]',
       '.btn-create-folder',
@@ -498,8 +633,8 @@ async function uploadImages(productId) {
     const inputPlaceholder = await folderInput.getAttribute('placeholder');
     logVerbose(`输入框类型: ${inputType}, placeholder: ${inputPlaceholder}`);
 
-    // 强制点击输入框以确保焦点正确
-    log('📍 强制点击弹窗内文件夹名称输入框，确保焦点正确...');
+    // 直接输入文件夹名称（已经在2026文件夹中了）
+    log('步骤5.1: 输入文件夹名称...');
     await folderInput.click({ force: true });
 
     // 填入商品ID
@@ -556,312 +691,90 @@ async function uploadImages(productId) {
     await page.waitForTimeout(3000);
     log('✅ 文件夹创建完成', 'success');
 
-    // 步骤5.5: 确认新文件夹出现在左侧列表中
-    log('步骤5.5: 等待新文件夹出现在左侧列表...');
+    // 步骤5.2: 验证文件夹创建并进入
+    log('步骤5.2: 验证文件夹创建并进入...');
 
-    const folderAppearSelectors = [
-      `[title="${productId}"]`,
-      `.material-folder-item:has-text("${productId}")`,
-      `.next-tree-node:has-text("${productId}")`,
-      `text=${productId}`,
-      `li:has-text("${productId}")`,
-      `.tree-node:has-text("${productId}")`,
-      `[class*="folder"]:has-text("${productId}")`
+    // 等待页面响应
+    await page.waitForTimeout(3000);
+
+    // 检查是否有错误提示
+    const errorSelectors = [
+      'text=文件夹已存在',
+      'text=名称重复',
+      '.error-message',
+      '.next-feedback:has-text("错误")'
     ];
 
-    let folderAppearSuccess = false;
-    let foundFolderSelector = null;
-
-    // 增加等待时间和重试逻辑
-    for (const selector of folderAppearSelectors) {
+    let hasError = false;
+    for (const selector of errorSelectors) {
       try {
-        logVerbose(`等待文件夹出现: ${selector}`);
-
-        // 尝试多次检查，每次等待3秒，总共15秒
-        let found = false;
-        for (let i = 0; i < 5; i++) {
-          try {
-            const element = await page.$(selector);
-            if (element && await element.isVisible()) {
-              found = true;
-              break;
-            }
-          } catch (e) {
-            // 继续下一次尝试
-          }
-
-          if (!found && i < 4) {
-            await page.waitForTimeout(3000);
-          }
-        }
-
-        if (found) {
-          foundFolderSelector = selector;
-          folderAppearSuccess = true;
-          log(`✅ 找到新文件夹: ${selector}`, 'success');
-
-          // 截图确认文件夹在左侧树中可见
-          logVerbose('截图保存文件夹创建证据...');
-          try {
-            await Promise.race([
-              page.screenshot({
-                path: `step5-folder-created-${productId}.png`,
-                fullPage: false,
-                type: 'png'
-              }),
-              new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
-            ]);
-            log(`📸 已保存文件夹创建截图: step5-folder-created-${productId}.png`);
-          } catch (e) {
-            log('⚠️ 截图保存失败，但继续执行', 'warning');
-            logVerbose('截图失败详情', e);
-          }
-
+        const errorMsg = await page.$(selector);
+        if (errorMsg && await errorMsg.isVisible()) {
+          log(`⚠️ 文件夹可能已存在: ${selector}`, 'warning');
+          hasError = true;
+          // 关闭错误提示
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(1000);
           break;
         }
-      } catch (error) {
-        logVerbose(`等待文件夹 ${selector} 超时: ${error.message}`);
-        continue;
+      } catch (e) {
+        // 继续
       }
     }
 
-    if (!folderAppearSuccess) {
-      throw new Error(`新文件夹未在10秒内出现在列表中: ${productId}`);
+    if (!hasError) {
+      log('✅ 文件夹创建成功', 'success');
     }
 
-    // 步骤6: 进入新创建的文件夹
-    log('步骤6: 进入新创建的文件夹...');
+    // 🔴 关键步骤：双击进入新创建的文件夹
+    log('步骤5.3: 双击进入新创建的文件夹...');
 
-    let enterSuccess = false;
+    // 查找新创建的文件夹
+    const newFolderSelectors = [
+      `div:has-text("${productId}"):not(:has-text("2026"))`,
+      `.folder-item:has-text("${productId}")`,
+      `[title="${productId}"]`,
+      `text=${productId}`
+    ];
 
-    // 使用找到的选择器进行点击
-    if (foundFolderSelector) {
+    let folderElement = null;
+    for (const selector of newFolderSelectors) {
       try {
-        logVerbose(`使用选择器进入文件夹: ${foundFolderSelector}`);
-
-        // 强制关闭任何可能的对话框或遮罩层
-        logVerbose('强制关闭所有对话框和遮罩层...');
-        await page.evaluate(() => {
-          // 关闭所有遮罩层
-          const overlays = document.querySelectorAll('.next-overlay-wrapper.opened, .next-dialog, .modal');
-          overlays.forEach(overlay => {
-            overlay.style.display = 'none';
-            overlay.remove();
-          });
-
-          // 关闭所有对话框
-          const dialogs = document.querySelectorAll('[role="dialog"], .next-dialog-body');
-          dialogs.forEach(dialog => {
-            dialog.style.display = 'none';
-            dialog.remove();
-          });
-        });
-
-        await page.waitForTimeout(1000);
-
-        // 更精确的文件夹定位策略
-        logVerbose('开始精确定位文件夹...');
-
-        // 先清理所有可能的弹窗干扰
-        await closeMaterialCenterPopups(page);
-        await page.waitForTimeout(1000);
-
-        // 使用更具体的选择器，确保点击的是文件夹节点而不是广告
-        const preciseFolderSelectors = [
-          `li.next-tree-node[title="${productId}"] .next-tree-node-content`,
-          `li.next-tree-node:has-text("${productId}") .next-tree-node-content`,
-          `[title="${productId}"] .next-tree-node-title`,
-          `li.next-tree-node:has-text("${productId}"):not(.ad):not(.popup)`
-        ];
-
-        let folderElement = null;
-        let usedSelector = null;
-
-        for (const selector of preciseFolderSelectors) {
-          try {
-            const element = await page.$(selector);
-            if (element) {
-              folderElement = element;
-              usedSelector = selector;
-              logVerbose(`✅ 找到精确文件夹元素: ${selector}`);
-              break;
-            }
-          } catch (e) {
-            logVerbose(`选择器失败: ${selector}`, e);
-            continue;
+        const elements = await page.$$(selector);
+        for (const el of elements) {
+          const text = await el.textContent();
+          if (text && text.trim() === productId) {
+            folderElement = el;
+            log(`✅ 找到文件夹元素: ${selector}`, 'success');
+            break;
           }
         }
-
-        if (!folderElement) {
-          throw new Error(`无法精确获取文件夹元素: ${productId}`);
-        }
-
-        // 滚动到可见位置
-        logVerbose('滚动文件夹到可见位置...');
-        await folderElement.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(500);
-
-        // 再次清理广告弹窗，确保点击不受干扰
-        logVerbose('点击前再次清理弹窗...');
-        await closeMaterialCenterPopups(page);
-
-        // 等待并确保没有遮罩层
-        await page.waitForTimeout(1000);
-
-        // 使用真正的双击方法进入文件夹
-        logVerbose(`使用选择器进行双击操作: ${usedSelector}`);
-
-        // 确保文件夹可见并获得焦点
-        logVerbose('确保文件夹可见并获取焦点...');
-        await folderElement.scrollIntoViewIfNeeded();
-        await folderElement.hover(); // 鼠标悬停
-        await page.waitForTimeout(1000);
-
-        // 第一次单击：选中文件夹
-        logVerbose('第一次单击：选中文件夹...');
-        await folderElement.click({ force: true });
-        await page.waitForTimeout(500);
-
-        // 真正的双击：进入文件夹
-        logVerbose('执行真正的双击进入文件夹...');
-        await folderElement.dblclick({ force: true });
-        await page.waitForTimeout(1000);
-
-        // 等待页面响应和加载
-        await page.waitForTimeout(4000);
-
-        // 验证是否成功进入文件夹
-        logVerbose('验证是否进入文件夹...');
-
-        // 更精确的文件夹进入验证机制
-        logVerbose('开始精确验证是否进入文件夹...');
-
-        // 方法1：检查面包屑导航是否显示当前文件夹
-        let successConfirmed = false;
-        let breadcrumbFound = false;
-
-        try {
-          const breadcrumbSelectors = [
-            `text=全部图片/2026/${productId}`,
-            `text=*/${productId}`,
-            `text=${productId}`,
-            '.breadcrumb:has-text("' + productId + '")'
-          ];
-
-          for (const breadcrumb of breadcrumbSelectors) {
-            try {
-              await page.waitForSelector(breadcrumb, { timeout: 2000 });
-              breadcrumbFound = true;
-              logVerbose(`✅ 找到面包屑导航: ${breadcrumb}`);
-              break;
-            } catch (e) {
-              continue;
-            }
-          }
-
-          // 方法2：检查URL是否包含文件夹路径
-          const currentUrl = page.url();
-          if (currentUrl.includes(productId) ||
-              (currentUrl.includes('sucai-tu') && breadcrumbFound)) {
-            successConfirmed = true;
-            logVerbose(`✅ URL验证通过: ${currentUrl}`);
-          }
-
-          // 方法3：检查文件夹标题或当前路径指示器
-          if (!successConfirmed) {
-            const pathIndicators = [
-              `text=${productId}`,
-              '.folder-name:has-text("' + productId + '")',
-              '[class*="current"]:has-text("' + productId + '")'
-            ];
-
-            for (const indicator of pathIndicators) {
-              try {
-                const element = await page.$(indicator);
-                if (element && await element.isVisible()) {
-                  successConfirmed = true;
-                  logVerbose(`✅ 找到路径指示器: ${indicator}`);
-                  break;
-                }
-              } catch (e) {
-                continue;
-              }
-            }
-          }
-
-          // 方法4：检查是否真的在文件夹内（而不是根目录）
-          if (!successConfirmed) {
-            // 确保不在根目录 - 检查根目录的特有元素是否存在
-            const isRootFolder = await page.$('text=全部图片, text=2026, li.next-tree-node:has-text("2026").expanded');
-
-            // 如果找到了根目录的2026文件夹，且它处于展开状态，说明还在根目录
-            if (isRootFolder) {
-              logVerbose('⚠️ 检测到仍在根目录，未成功进入文件夹');
-              successConfirmed = false;
-            } else {
-              // 检查是否有上传按钮（文件夹内有上传按钮）
-              const uploadButton = await page.$('button:has-text("上传文件")');
-              if (uploadButton) {
-                successConfirmed = true;
-                logVerbose('✅ 检测到上传按钮，确认在文件夹内');
-              }
-            }
-          }
-
-        } catch (error) {
-          logVerbose('验证过程中出现错误:', error);
-        }
-
-        if (successConfirmed) {
-          enterSuccess = true;
-          log(`🎉 成功进入文件夹: ${productId}`, 'success');
-          logVerbose('当前页面URL', page.url());
-
-          // 保存进入文件夹的截图，确认"暂无图片"
-          try {
-            // 使用较短的超时时间，避免卡住
-            await Promise.race([
-              page.screenshot({
-                path: `step5-folder-empty-${productId}.png`,
-                fullPage: false,
-                type: 'png'
-              }),
-              new Promise(resolve => setTimeout(resolve, 10000)) // 10秒超时
-            ]);
-            log(`📸 已保存空文件夹截图: step5-folder-empty-${productId}.png`);
-          } catch (e) {
-            log(`⚠️ 截图保存失败，但继续执行: ${e.message}`, 'warning');
-          }
-        } else {
-          log('⚠️ 点击完成但未确认进入文件夹', 'warning');
-        }
-
-      } catch (error) {
-        log(`进入文件夹失败: ${error.message}`, 'error');
-        logVerbose('详细错误信息', error);
+        if (folderElement) break;
+      } catch (e) {
+        logVerbose(`选择器 ${selector} 查找失败`);
       }
     }
 
-    if (!enterSuccess) {
-      throw new Error(`无法进入商品文件夹: ${productId}`);
-    }
+    if (folderElement) {
+      // 双击进入文件夹
+      await folderElement.dblclick();
+      log('✅ 已双击进入文件夹', 'success');
+      await page.waitForTimeout(3000);
 
-    // 步骤7: 检查"暂无图片"提示
-    log('步骤7: 检查是否进入正确位置...');
-
-    try {
-      const noImageText = await page.$('text=暂无图片, text=暂无内容, text=暂无数据');
-      if (noImageText) {
-        log('确认进入正确位置: 显示"暂无图片"', 'success');
+      // 验证是否进入（通过面包屑）
+      const breadcrumbCheck = await page.$(`text=全部图片/2026/${productId}`);
+      if (breadcrumbCheck) {
+        log(`✅ 成功进入文件夹: ${productId}`, 'success');
       } else {
-        log('文件夹中已有内容，继续上传流程', 'warning');
+        log('⚠️ 未确认进入文件夹，但继续上传', 'warning');
       }
-    } catch (e) {
-      logVerbose('未找到"暂无图片"提示，继续执行...');
+    } else {
+      log('⚠️ 未找到新创建的文件夹元素，但继续上传', 'warning');
     }
+    }  // 结束 if (!skipFolderCreation) 块
 
-    // 步骤8: 点击上传文件按钮
-    log('步骤8: 点击上传文件按钮...');
+    // 步骤6: 点击上传文件按钮
+    log('步骤6: 点击上传文件按钮...');
 
     // 在上传文件前清理所有弹窗和干扰层
     logVerbose('上传文件前清理弹窗...');
@@ -908,20 +821,212 @@ async function uploadImages(productId) {
       logVerbose('未找到批量导入按钮，继续标准上传流程...');
     }
 
-    // 步骤9: 处理文件上传对话框
-    log('步骤9: 处理文件上传对话框...');
+    // 步骤7: 处理文件上传对话框
+    log('步骤7: 处理文件上传对话框...');
 
     const uploadSuccess = await handleFileUploadDialog(page, productId, localData.localFolder, localData.files);
     if (!uploadSuccess) {
       throw new Error('文件上传对话框处理失败');
     }
 
-    // 步骤10: 等待上传完成
-    log('步骤10: 等待上传完成...');
+    // 步骤8: 等待上传完成
+    log('步骤8: 等待上传完成...');
     const isUploadComplete = await waitForUploadComplete(page);
 
     if (isUploadComplete) {
       log(`🎉 Step5完成！成功上传 ${localData.files.length} 个图片文件到商品 ${productId} 的文件夹`, 'success');
+
+      // 🔴 关键步骤：点击"完成"按钮关闭上传对话框
+      log('📝 查找并点击"完成"按钮...');
+
+      const completeButtonSelectors = [
+        'button:has-text("完成")',
+        'button:text("完成")',
+        '.next-btn:has-text("完成")',
+        '[type="button"]:has-text("完成")',
+        '.next-dialog button:has-text("完成")',
+        '[role="dialog"] button:has-text("完成")'
+      ];
+
+      let clickedComplete = false;
+      for (const selector of completeButtonSelectors) {
+        try {
+          const completeBtn = await page.$(selector);
+          if (completeBtn && await completeBtn.isVisible()) {
+            await completeBtn.click();
+            log(`✅ 已点击"完成"按钮，选择器: ${selector}`, 'success');
+            clickedComplete = true;
+            await page.waitForTimeout(2000);
+            break;
+          }
+        } catch (e) {
+          logVerbose(`选择器 ${selector} 未找到完成按钮`);
+        }
+      }
+
+      if (!clickedComplete) {
+        log('⚠️ 未找到"完成"按钮，尝试按ESC键关闭对话框', 'warning');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(1000);
+      }
+
+      // 验证对话框是否关闭
+      const dialogClosed = await page.$('.next-dialog, [role="dialog"]')
+        .then(el => !el || !el.isVisible())
+        .catch(() => true);
+
+      if (dialogClosed) {
+        log('✅ 上传对话框已成功关闭', 'success');
+      } else {
+        log('⚠️ 对话框可能未完全关闭，但继续执行', 'warning');
+      }
+
+      // 🔴 关键步骤：关闭上传结果浮窗（淘宝会弹出包含"上传至 2026/xxx"的结果窗口）
+      log('步骤9: 强制关闭所有上传相关弹窗...');
+      await page.waitForTimeout(3000); // 等待上传结果浮窗出现
+
+      // 多次尝试关闭所有可能的弹窗
+      for (let attempt = 0; attempt < 3; attempt++) {
+        logVerbose(`第 ${attempt + 1} 次尝试关闭弹窗...`);
+
+        // 查找所有可能的关闭按钮
+        const uploadResultSelectors = [
+          'button:has-text("完成")',
+          'button:has-text("取消")',
+          'button:has-text("关闭")',
+          '.next-dialog button:has-text("完成")',
+          '.next-dialog button:has-text("取消")',
+          '[role="dialog"] button:has-text("完成")',
+          '[role="dialog"] button:has-text("取消")'
+        ];
+
+        let clickedAny = false;
+        for (const selector of uploadResultSelectors) {
+          try {
+            const buttons = await page.$$(selector);
+            for (const btn of buttons) {
+              if (await btn.isVisible().catch(() => false)) {
+                await btn.click();
+                log(`✅ 已关闭上传结果弹窗: ${selector}`, 'success');
+                clickedAny = true;
+                await page.waitForTimeout(1000);
+              }
+            }
+          } catch (e) {
+            // 继续
+          }
+        }
+
+        if (!clickedAny) {
+          logVerbose('未找到可见的弹窗按钮');
+        }
+
+        await page.waitForTimeout(1000);
+      }
+
+      // 强制按ESC键关闭任何残留弹窗
+      log('按ESC键确保关闭所有弹窗...');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(1000);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(1000);
+
+      // 🔴 关键步骤：清理搜索面板
+      log('步骤10: 强制清理搜索面板和遮罩层...');
+      await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
+      await forceRemoveSearchPanel(page, '上传完成后的二次清理');
+      await page.waitForTimeout(2000);
+
+      // 验证是否清理成功
+      const searchPanelCheck = await page.evaluate(() => {
+        const panels = document.querySelectorAll('.qnworkbench_search_panel, #qnworkbench_search_panel');
+        return panels.length;
+      });
+
+      if (searchPanelCheck === 0) {
+        log('✅ 搜索面板已彻底清理', 'success');
+      } else {
+        log(`⚠️ 仍有 ${searchPanelCheck} 个搜索面板元素`, 'warning');
+      }
+
+      // 确认所有对话框都已关闭
+      const anyDialogRemaining = await page.$$('.next-dialog, [role="dialog"]');
+      if (anyDialogRemaining.length > 0) {
+        log(`⚠️ 仍有 ${anyDialogRemaining.length} 个对话框，强制关闭...`, 'warning');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(1000);
+      } else {
+        log('✅ 确认所有对话框已关闭', 'success');
+      }
+
+      // 🔴 关键步骤：刷新页面并验证文件
+      log('步骤11: 刷新页面并验证文件位置...');
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForTimeout(3000);
+
+      // 清理刷新后可能出现的弹窗
+      await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
+      await page.waitForTimeout(2000);
+
+      // 导航到 2026/${productId} 目录
+      log(`尝试进入目录: 2026/${productId}...`);
+
+      // 点击2026文件夹
+      const folder2026 = await page.$('li.next-tree-node:has-text("2026")');
+      if (folder2026) {
+        await folder2026.click();
+        await page.waitForTimeout(2000);
+        log('✅ 已点击2026文件夹', 'success');
+
+        // 展开2026文件夹
+        await ensureFolderExpanded(page, '2026');
+        await page.waitForTimeout(2000);
+
+        // 查找并点击子文件夹
+        const subFolderSelectors = [
+          `li.next-tree-node[title="${productId}"]`,
+          `li.next-tree-node:has-text("${productId}")`
+        ];
+
+        let foundSubFolder = false;
+        for (const selector of subFolderSelectors) {
+          try {
+            const subFolder = await page.$(selector);
+            if (subFolder) {
+              await subFolder.click();
+              await page.waitForTimeout(2000);
+              log(`✅ 已点击子文件夹: ${productId}`, 'success');
+              foundSubFolder = true;
+              break;
+            }
+          } catch (e) {
+            logVerbose(`选择器 ${selector} 未找到子文件夹`);
+          }
+        }
+
+        if (!foundSubFolder) {
+          log('⚠️ 未在左侧树中找到子文件夹，尝试在右侧双击', 'warning');
+          // 尝试在右侧找到并双击
+          const rightSideFolder = await page.$(`div:has-text("${productId}")`);
+          if (rightSideFolder) {
+            await rightSideFolder.dblclick();
+            await page.waitForTimeout(2000);
+          }
+        }
+      }
+
+      // 验证面包屑
+      const breadcrumbVerify = await page.$(`text=全部图片/2026/${productId}`);
+      if (breadcrumbVerify) {
+        log(`✅ 面包屑验证成功: 全部图片/2026/${productId}`, 'success');
+      } else {
+        log('⚠️ 面包屑验证失败，可能不在正确目录', 'warning');
+      }
+
+      // 检查是否有 color_ 图片
+      await page.waitForTimeout(2000);
+      const colorImages = await page.$$('img[src*="color_"]');
+      log(`📊 在目录中找到 ${colorImages.length} 个 color_ 图片`, colorImages.length > 0 ? 'success' : 'warning');
 
       // 保存上传完成截图
       try {

@@ -82,15 +82,15 @@ async function uploadMaterialFolderSimple() {
     await closeAllDialogs();
     log('已清理所有弹窗');
 
-    // 先检查C25233113文件夹是否已存在
-    log('检查C25233113文件夹是否已存在');
+    // 先检查${productId}文件夹是否已存在
+    log(`检查${productId}文件夹是否已存在`);
     await expand2026();
     await page.waitForTimeout(1000);
 
-    const existingC25233113 = await page.$('li.next-tree-node:has-text("C25233113")');
-    if (existingC25233113) {
-      log('C25233113文件夹已存在，跳过创建步骤', 'success');
-      await existingC25233113.click();
+    const existingFolder = await page.$(`li.next-tree-node:has-text("${productId}")`);
+    if (existingFolder) {
+      log(`${productId}文件夹已存在，跳过创建步骤`, 'success');
+      await existingFolder.click();
       await page.waitForTimeout(1000);
 
       // 验证面包屑 - 使用更灵活的验证
@@ -99,29 +99,29 @@ async function uploadMaterialFolderSimple() {
         const text = await breadcrumb.textContent();
         log(`当前面包屑: ${text.trim()}`);
 
-        // 检查是否包含C25233113即可，面包屑格式可能不同
-        if (text.includes('C25233113')) {
+        // 检查是否包含${productId}即可，面包屑格式可能不同
+        if (text.includes(productId)) {
           log(`面包屑正确: ${text.trim()}`, 'success');
           // 直接跳转到步骤3
           gotoStep3 = true;
         } else {
-          log('面包屑不包含C25233113，等待更新...');
+          log(`面包屑不包含${productId}，等待更新...`);
           // 等待2秒让面包屑更新
           await page.waitForTimeout(2000);
           const updatedText = await breadcrumb.textContent();
           log(`更新后面包屑: ${updatedText.trim()}`);
 
-          if (updatedText.includes('C25233113')) {
+          if (updatedText.includes(productId)) {
             log(`面包屑更新正确: ${updatedText.trim()}`, 'success');
             gotoStep3 = true;
           } else {
-            log('面包屑仍不包含C25233113，继续尝试点击...');
+            log(`面包屑仍不包含${productId}，继续尝试点击...`);
             // 再次尝试点击
-            await existingC25233113.click();
+            await existingFolder.click();
             await page.waitForTimeout(1000);
             const finalText = await breadcrumb.textContent();
 
-            if (finalText.includes('C25233113')) {
+            if (finalText.includes(productId)) {
               log(`第三次面包屑检查通过: ${finalText.trim()}`, 'success');
               gotoStep3 = true;
             }
@@ -136,7 +136,7 @@ async function uploadMaterialFolderSimple() {
         log('灵活验证失败，将使用标准导航流程', 'warning');
       }
     } else {
-      log('C25233113文件夹不存在，开始创建');
+      log(`${productId}文件夹不存在，开始创建`);
       // 点击新建文件夹按钮
       const newFolderButton = await page.$('button:has-text("新建文件夹")');
       if (newFolderButton) {
@@ -156,8 +156,8 @@ async function uploadMaterialFolderSimple() {
       }
     }
 
-    // 在输入框中输入C25233113 - 使用多种方法确保输入成功
-    log('开始输入文件夹名称到弹窗');
+    // 在输入框中输入${productId} - 使用多种方法确保输入成功
+    log(`开始输入文件夹名称到弹窗`);
 
     // 方法1：尝试点击并输入
     const inputSelectors = [
@@ -310,40 +310,45 @@ async function uploadMaterialFolderSimple() {
         }
       }
 
-      // 等待3秒让创建处理
-      log('等待3秒让创建处理...');
+      // 等待5秒让创建处理，然后刷新页面确保文件夹显示在树中
+      log('等待5秒让创建处理，然后刷新页面...');
+      await page.waitForTimeout(5000);
+
+      // 刷新页面确保新创建的文件夹出现在树结构中
+      log('刷新页面确保新文件夹出现在树结构中');
+      await page.reload();
       await page.waitForTimeout(3000);
     }
 
-    // 步骤2：左侧树展开2026，单击C25233113节点（仅在新建文件夹时需要）
+    // 步骤2：左侧树展开2026，单击${productId}节点（仅在新建文件夹时需要）
     if (!gotoStep3) {
-      log('步骤2：点击左侧C25233113节点');
+      log(`步骤2：点击左侧${productId}节点`);
 
       await expand2026();
       await page.waitForTimeout(1000);
 
-      // 点击C25233113节点
-      const clickC25233113 = async () => {
-        const nodeC25233113 = await page.$('li.next-tree-node:has-text("C25233113")');
-        if (nodeC25233113) {
-          await nodeC25233113.click();
-          log('点击C25233113节点', 'success');
+      // 点击${productId}节点
+      const clickProductNode = async () => {
+        const nodeProduct = await page.$(`li.next-tree-node:has-text("${productId}")`);
+        if (nodeProduct) {
+          await nodeProduct.click();
+          log(`点击${productId}节点`, 'success');
           return true;
         }
         return false;
       };
 
-      let clicked = await clickC25233113();
-      if (!clicked) throwOnError('未找到C25233113节点');
+      let clicked = await clickProductNode();
+      if (!clicked) throwOnError(`未找到${productId}节点`);
 
       // 等待并验证面包屑
-      log('等待面包屑显示：全部图片 / 2026 / C25233113');
+      log(`等待面包屑显示：全部图片 / 2026 / ${productId}`);
       let breadcrumbCorrect = false;
       for (let i = 0; i < 10; i++) {
         const breadcrumb = await page.$('.next-breadcrumb');
         if (breadcrumb) {
           const text = await breadcrumb.textContent();
-          if (text.includes('全部图片') && text.includes('2026') && text.includes('C25233113')) {
+          if (text.includes('全部图片') && text.includes('2026') && text.includes(productId)) {
             log(`面包屑正确: ${text.trim()}`, 'success');
             breadcrumbCorrect = true;
             break;
@@ -351,13 +356,13 @@ async function uploadMaterialFolderSimple() {
         }
 
         if (i < 9) {
-          log(`面包屑未正确，第${i+1}次重试点击C25233113节点`);
-          await clickC25233113();
+          log(`面包屑未正确，第${i+1}次重试点击${productId}节点`);
+          await clickProductNode();
           await page.waitForTimeout(1000);
         }
       }
 
-      if (!breadcrumbCorrect) throwOnError('5秒内面包屑仍未显示/C25233113');
+      if (!breadcrumbCorrect) throwOnError(`5秒内面包屑仍未显示/${productId}`);
     } else {
       log('文件夹已存在且已正确导航，跳过步骤2');
     }
@@ -560,23 +565,23 @@ async function uploadMaterialFolderSimple() {
     await page.reload();
     await page.waitForTimeout(3000);
 
-    // 重新点击C25233113节点
+    // 重新点击${productId}节点
     await expand2026();
     await page.waitForTimeout(1000);
 
-    // 定义点击C25233113节点的函数
-    const clickC25233113Again = async () => {
-      const nodeC25233113 = await page.$('li.next-tree-node:has-text("C25233113")');
-      if (nodeC25233113) {
-        await nodeC25233113.click();
-        log('重新点击C25233113节点', 'success');
+    // 定义点击${productId}节点的函数
+    const clickProductNodeAgain = async () => {
+      const nodeProduct = await page.$(`li.next-tree-node:has-text("${productId}")`);
+      if (nodeProduct) {
+        await nodeProduct.click();
+        log(`重新点击${productId}节点`, 'success');
         return true;
       }
       return false;
     };
 
-    const clickedAgain = await clickC25233113Again();
-    if (!clickedAgain) throwOnError('刷新后未找到C25233113节点');
+    const clickedAgain = await clickProductNodeAgain();
+    if (!clickedAgain) throwOnError(`刷新后未找到${productId}节点`);
 
     // 验证面包屑 - 使用更灵活的验证
     log('验证刷新后面包屑');
@@ -585,11 +590,11 @@ async function uploadMaterialFolderSimple() {
       const text = await finalBreadcrumb.textContent();
       log(`刷新后面包屑: ${text.trim()}`);
 
-      // 只需要包含C25233113即可证明在正确目录
-      if (text.includes('C25233113')) {
+      // 只需要包含${productId}即可证明在正确目录
+      if (text.includes(productId)) {
         log(`刷新后面包屑正确: ${text.trim()}`, 'success');
       } else {
-        throwOnError(`刷新后面包屑错误，未找到C25233113: ${text.trim()}`);
+        throwOnError(`刷新后面包屑错误，未找到${productId}: ${text.trim()}`);
       }
     } else {
       throwOnError('未找到面包屑元素');
