@@ -220,6 +220,34 @@ async function forceRemoveSearchPanel(page, reason = '通用') {
 }
 
 /**
+ * 强制关闭上传结果浮层/任意 Next Dialog
+ */
+async function forceCloseUploadOverlay(page, reason = '上传结果弹窗') {
+  logVerbose(`强制关闭上传浮层（原因: ${reason}）...`);
+  try {
+    await page.evaluate(() => {
+      const closeButtons = [
+        '.next-dialog-close',
+        '.next-dialog button:has-text("完成")',
+        '.next-dialog button:has-text("取消")',
+        'button:has-text("完成")',
+        'button:has-text("取消")'
+      ];
+      closeButtons.forEach(selector => {
+        document.querySelectorAll(selector).forEach(btn => btn.click());
+      });
+      document.querySelectorAll('.next-dialog, [role="dialog"]').forEach(dialog => {
+        dialog.remove();
+      });
+      document.body.style.pointerEvents = 'auto';
+      document.body.style.overflow = 'auto';
+    });
+  } catch (error) {
+    logVerbose(`强制关闭上传浮层失败: ${error.message}`);
+  }
+}
+
+/**
  * 等待上传完成并检查结果
  */
 async function waitForUploadComplete(page) {
@@ -808,6 +836,7 @@ async function uploadImages(productId) {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(800);
       log('✅ 已通过 ESC 关闭上传对话框，如无响应会立即清理广告遮罩', 'success');
+      await forceCloseUploadOverlay(page);
       await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
 
       // 🔴 关键步骤：关闭上传结果浮窗
