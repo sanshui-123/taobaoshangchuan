@@ -26,10 +26,11 @@ function logVerbose(message, data = null) {
  * @param {Object} page - Playwright页面对象
  * @param {Object} options - 配置选项
  * @param {boolean} options.forceRemoveSearchPanel - 强制移除搜索面板
+ * @param {boolean} options.keepSearchPanelAlive - 启动搜索面板持续防护
  * @returns {Promise<Object>} 处理结果统计
  */
 async function closeMaterialCenterPopups(page, options = {}) {
-  const { forceRemoveSearchPanel = false } = options;
+  const { forceRemoveSearchPanel = false, keepSearchPanelAlive = false } = options;
   const results = {
     videoDialogClosed: false,
     migrationGuideSkipped: false,
@@ -145,6 +146,19 @@ async function closeMaterialCenterPopups(page, options = {}) {
 
     // 处理第六个干扰：重要消息浮层
     await closeImportantMessage(page, ctx, results);
+
+    // 启动搜索面板持续防护
+    if (keepSearchPanelAlive) {
+      ctx.logger.info('启动搜索面板持续防护...');
+      try {
+        await keepSearchPanelDetached(page);
+        ctx.logger.success('已启动搜索面板观察器');
+        logVerbose('搜索面板观察器已启动，将持续监控并移除搜索面板元素');
+      } catch (observerError) {
+        ctx.logger.warn(`启动搜索面板观察器失败: ${observerError.message}`);
+        logVerbose('启动观察器失败详情:', observerError);
+      }
+    }
 
     // 输出处理结果
     ctx.logger.success(`广告处理完成 - 共关闭 ${results.totalClosed} 个弹窗`);
@@ -1064,6 +1078,139 @@ async function closeImportantMessage(page, ctx, results) {
     ctx.logger.info('未发现重要消息浮层或处理失败');
     logVerbose('重要消息浮层处理异常:', error.message);
   }
+}
+
+/**
+ * 持续监控并移除搜索面板元素
+ * @param {Object} page - Playwright页面对象
+ * @returns {Promise<void>}
+ */
+async function keepSearchPanelDetached(page) {
+  await page.evaluate(() => {
+    // 创建全局移除函数
+    window.__removeSearchPanel = () => {
+      const selectors = [
+        '#qnworkbench_search_panel',
+        '.qnworkbench_search_panel',
+        '.NewSearchPanel_searchPanel__*',
+        '.qnworkbench_SearchPop__*',
+        '[id*="search_panel"]',
+        '[class*="SearchPanel"]',
+        '[class*="searchPanel"]'
+      ];
+
+      let removedCount = 0;
+      selectors.forEach(selector => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach(element => {
+            element.remove();
+            removedCount++;
+          });
+        } catch (e) {
+          console.log('移除搜索面板元素时出错:', selector, e.message);
+        }
+      });
+
+      // 额外清理：查找包含"搜索"相关的顶层遮罩（避免误伤其他弹窗）
+      const allElements = document.querySelectorAll('*');
+      allElements.forEach(element => {
+        const className = element.className || '';
+        const id = element.id || '';
+        const style = element.style || {};
+        const textContent = element.textContent || '';
+
+        // 更严格的搜索面板识别条件，避免误伤其他弹窗
+        if (
+          (typeof className === 'string' && (
+            className.includes('SearchPanel') ||
+            className.includes('searchPanel') ||
+            className.includes('qnworkbench_search_panel')
+          )) ||
+          (typeof id === 'string' && (
+            id.includes('search_panel') ||
+            id.includes('qnworkbench_search_panel')
+          )) ||
+          // 严格的条件：固定定位 + 高z-index + 明确的搜索相关文本
+          (style.position === 'fixed' &&
+           parseInt(style.zIndex) > 2000 &&
+           textContent &&
+           (textContent.includes('搜索') || textContent.includes('search')) &&
+           // 额外确保不是弹窗类元素
+           !className.includes('dialog') &&
+           !className.includes('modal') &&
+           !className.includes('popup') &&
+           !id.includes('dialog') &&
+           !id.includes('modal')
+          )
+        ) {
+          if (element.tagName === 'DIV' &&
+              (style.position === 'fixed' || style.position === 'absolute')) {
+            element.remove();
+            removedCount++;
+          }
+        }
+      });
+
+      if (removedCount > 0) {
+        console.log(`[搜索面板观察器] 移除了 ${removedCount} 个搜索面板元素`);
+      }
+      return removedCount;
+    };
+
+    // 立即执行一次清理
+    window.__removeSearchPanel();
+
+    // 如果观察器已存在，先停止它
+    if (window.__searchPanelObserver) {
+      window.__searchPanelObserver.disconnect();
+    }
+
+    // 创建 MutationObserver 持续监控
+    window.__searchPanelObserver = new MutationObserver((mutations) => {
+      let shouldClean = false;
+
+      mutations.forEach((mutation) => {
+        // 检查新添加的节点
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const className = node.className || '';
+            const id = node.id || '';
+
+            // 更精确的搜索面板识别，避免误伤其他弹窗
+            if (
+              (typeof className === 'string' && (
+                className.includes('SearchPanel') ||
+                className.includes('searchPanel') ||
+                className.includes('qnworkbench_search_panel')
+              )) ||
+              (typeof id === 'string' && (
+                id.includes('search_panel') ||
+                id.includes('qnworkbench_search_panel')
+              ))
+            ) {
+              shouldClean = true;
+            }
+          }
+        });
+      });
+
+      if (shouldClean) {
+        // 延迟一点执行，避免与DOM插入冲突
+        setTimeout(() => {
+          window.__removeSearchPanel();
+        }, 10);
+      }
+    });
+
+    // 启动观察器，监控整个文档的变化
+    window.__searchPanelObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    console.log('[搜索面板观察器] 已启动，将持续监控DOM变化');
+  });
 }
 
 /**
