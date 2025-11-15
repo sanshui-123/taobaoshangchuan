@@ -225,17 +225,32 @@ async function forceRemoveSearchPanel(page, reason = '通用') {
 async function forceCloseUploadOverlay(page, reason = '上传结果弹窗') {
   logVerbose(`强制关闭上传浮层（原因: ${reason}）...`);
   try {
+    const selectors = [
+      '.next-dialog-close',
+      '.next-dialog button.next-btn',
+      'button:has-text("完成")',
+      'button:has-text("取消")',
+      'button:has-text("关闭")'
+    ];
+
+    for (const selector of selectors) {
+      try {
+        const locator = page.locator(selector);
+        const count = await locator.count();
+        for (let i = 0; i < count; i++) {
+          const btn = locator.nth(i);
+          if (await btn.isVisible().catch(() => false)) {
+            await btn.click().catch(() => {});
+            await page.waitForTimeout(200);
+          }
+        }
+      } catch (e) {
+        logVerbose(`关闭浮层时跳过 ${selector}: ${e.message}`);
+      }
+    }
+
+    // 最后一招：直接移除残留的 next-dialog 元素
     await page.evaluate(() => {
-      const closeButtons = [
-        '.next-dialog-close',
-        '.next-dialog button:has-text("完成")',
-        '.next-dialog button:has-text("取消")',
-        'button:has-text("完成")',
-        'button:has-text("取消")'
-      ];
-      closeButtons.forEach(selector => {
-        document.querySelectorAll(selector).forEach(btn => btn.click());
-      });
       document.querySelectorAll('.next-dialog, [role="dialog"]').forEach(dialog => {
         dialog.remove();
       });
