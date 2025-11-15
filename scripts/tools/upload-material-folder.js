@@ -801,50 +801,14 @@ async function uploadImages(productId) {
     if (isUploadComplete) {
       log(`🎉 Step5完成！成功上传 ${localData.files.length} 个图片文件到商品 ${productId} 的文件夹`, 'success');
 
-      // 🔴 关键步骤：点击"完成"按钮关闭上传对话框
-      log('📝 查找并点击"完成"按钮...');
-
-      const completeButtonSelectors = [
-        'button:has-text("完成")',
-        'button:text("完成")',
-        '.next-btn:has-text("完成")',
-        '[type="button"]:has-text("完成")',
-        '.next-dialog button:has-text("完成")',
-        '[role="dialog"] button:has-text("完成")'
-      ];
-
-      let clickedComplete = false;
-      for (const selector of completeButtonSelectors) {
-        try {
-          const completeBtn = await page.$(selector);
-          if (completeBtn && await completeBtn.isVisible()) {
-            await completeBtn.click();
-            log(`✅ 已点击"完成"按钮，选择器: ${selector}`, 'success');
-            clickedComplete = true;
-            await page.waitForTimeout(2000);
-            break;
-          }
-        } catch (e) {
-          logVerbose(`选择器 ${selector} 未找到完成按钮`);
-        }
-      }
-
-      if (!clickedComplete) {
-        log('⚠️ 未找到"完成"按钮，尝试按ESC键关闭对话框', 'warning');
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(1000);
-      }
-
-      // 验证对话框是否关闭
-      const dialogClosed = await page.$('.next-dialog, [role="dialog"]')
-        .then(el => !el || !el.isVisible())
-        .catch(() => true);
-
-      if (dialogClosed) {
-        log('✅ 上传对话框已成功关闭', 'success');
-      } else {
-        log('⚠️ 对话框可能未完全关闭，但继续执行', 'warning');
-      }
+      // 🔴 关键步骤：直接通过 ESC 关闭上传对话框，避免误触顶栏
+      log('📝 发送 ESC 关闭上传对话框...');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(800);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(800);
+      log('✅ 已通过 ESC 关闭上传对话框，如无响应会立即清理广告遮罩', 'success');
+      await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
 
       // 🔴 关键步骤：关闭上传结果浮窗
       log('步骤8: 强制关闭所有上传相关弹窗...');
