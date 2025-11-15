@@ -465,50 +465,15 @@ async function uploadImages(productId) {
     }
     log(`本地验证通过: 找到 ${localData.files.length} 个图片文件`, 'success');
 
-    // 步骤4: 点击2026文件夹并进入
-    log('步骤4: 点击左侧2026文件夹...');
-
-    // 清理弹窗
-    await closeMaterialCenterPopups(page);
-    await page.waitForTimeout(1000);
-
-    // 展开并点击2026文件夹
-    const year2026Selectors = [
-      'li.next-tree-node:has-text("2026")',
-      '.next-tree-node-label:has-text("2026")',
-      'text=2026'
-    ];
-
-    let clickSuccess = false;
-    for (const selector of year2026Selectors) {
-      try {
-        logVerbose(`尝试选择器: ${selector}`);
-        await page.waitForSelector(selector, { timeout: 5000 });
-        await page.click(selector);
-        log('✅ 成功点击2026文件夹', 'success');
-        await page.waitForTimeout(2000);
-        clickSuccess = true;
-        break;
-      } catch (error) {
-        logVerbose(`选择器 ${selector} 失败: ${error.message}`);
-        continue;
-      }
-    }
-
-    if (!clickSuccess) {
-      throw new Error('无法找到或点击2026文件夹');
-    }
-
-    // 步骤5: 检查文件夹是否已存在并创建
-    log('步骤5: 检查并创建商品文件夹...');
+    // 步骤4: 检查文件夹是否已存在并创建
+    log('步骤4: 检查并创建商品文件夹...');
 
     // 初始化跳过标志
     let skipFolderCreation = false;
 
     // 通过面包屑检查是否已经在目标文件夹中
     const breadcrumbSelectors = [
-      `text=全部图片/2026/${productId}`,
-      `text=2026/${productId}`,
+      `text=全部图片/${productId}`,
       `text=/${productId}`
     ];
 
@@ -633,8 +598,8 @@ async function uploadImages(productId) {
     const inputPlaceholder = await folderInput.getAttribute('placeholder');
     logVerbose(`输入框类型: ${inputType}, placeholder: ${inputPlaceholder}`);
 
-    // 直接输入文件夹名称（已经在2026文件夹中了）
-    log('步骤5.1: 输入文件夹名称...');
+    // 直接输入文件夹名称（在根目录"全部图片"下创建）
+    log('步骤4.1: 输入文件夹名称...');
     await folderInput.click({ force: true });
 
     // 填入商品ID
@@ -691,8 +656,8 @@ async function uploadImages(productId) {
     await page.waitForTimeout(3000);
     log('✅ 文件夹创建完成', 'success');
 
-    // 步骤5.2: 验证文件夹创建并进入
-    log('步骤5.2: 验证文件夹创建并进入...');
+    // 步骤4.2: 验证文件夹创建并进入
+    log('步骤4.2: 验证文件夹创建并进入...');
 
     // 等待页面响应
     await page.waitForTimeout(3000);
@@ -727,11 +692,11 @@ async function uploadImages(productId) {
     }
 
     // 🔴 关键步骤：双击进入新创建的文件夹
-    log('步骤5.3: 双击进入新创建的文件夹...');
+    log('步骤4.3: 双击进入新创建的文件夹...');
 
     // 查找新创建的文件夹
     const newFolderSelectors = [
-      `div:has-text("${productId}"):not(:has-text("2026"))`,
+      `div:has-text("${productId}")`,
       `.folder-item:has-text("${productId}")`,
       `[title="${productId}"]`,
       `text=${productId}`
@@ -762,7 +727,7 @@ async function uploadImages(productId) {
       await page.waitForTimeout(3000);
 
       // 验证是否进入（通过面包屑）
-      const breadcrumbCheck = await page.$(`text=全部图片/2026/${productId}`);
+      const breadcrumbCheck = await page.$(`text=全部图片/${productId}`);
       if (breadcrumbCheck) {
         log(`✅ 成功进入文件夹: ${productId}`, 'success');
       } else {
@@ -773,8 +738,8 @@ async function uploadImages(productId) {
     }
     }  // 结束 if (!skipFolderCreation) 块
 
-    // 步骤6: 点击上传文件按钮
-    log('步骤6: 点击上传文件按钮...');
+    // 步骤5: 点击上传文件按钮
+    log('步骤5: 点击上传文件按钮...');
 
     // 在上传文件前清理所有弹窗和干扰层
     logVerbose('上传文件前清理弹窗...');
@@ -821,16 +786,16 @@ async function uploadImages(productId) {
       logVerbose('未找到批量导入按钮，继续标准上传流程...');
     }
 
-    // 步骤7: 处理文件上传对话框
-    log('步骤7: 处理文件上传对话框...');
+    // 步骤6: 处理文件上传对话框
+    log('步骤6: 处理文件上传对话框...');
 
     const uploadSuccess = await handleFileUploadDialog(page, productId, localData.localFolder, localData.files);
     if (!uploadSuccess) {
       throw new Error('文件上传对话框处理失败');
     }
 
-    // 步骤8: 等待上传完成
-    log('步骤8: 等待上传完成...');
+    // 步骤7: 等待上传完成
+    log('步骤7: 等待上传完成...');
     const isUploadComplete = await waitForUploadComplete(page);
 
     if (isUploadComplete) {
@@ -881,8 +846,8 @@ async function uploadImages(productId) {
         log('⚠️ 对话框可能未完全关闭，但继续执行', 'warning');
       }
 
-      // 🔴 关键步骤：关闭上传结果浮窗（淘宝会弹出包含"上传至 2026/xxx"的结果窗口）
-      log('步骤9: 强制关闭所有上传相关弹窗...');
+      // 🔴 关键步骤：关闭上传结果浮窗
+      log('步骤8: 强制关闭所有上传相关弹窗...');
       await page.waitForTimeout(3000); // 等待上传结果浮窗出现
 
       // 多次尝试关闭所有可能的弹窗
@@ -932,7 +897,7 @@ async function uploadImages(productId) {
       await page.waitForTimeout(1000);
 
       // 🔴 关键步骤：清理搜索面板
-      log('步骤10: 强制清理搜索面板和遮罩层...');
+      log('步骤9: 强制清理搜索面板和遮罩层...');
       await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
       await forceRemoveSearchPanel(page, '上传完成后的二次清理');
       await page.waitForTimeout(2000);
@@ -960,7 +925,7 @@ async function uploadImages(productId) {
       }
 
       // 🔴 关键步骤：刷新页面并验证文件
-      log('步骤11: 刷新页面并验证文件位置...');
+      log('步骤10: 刷新页面并验证文件位置...');
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForTimeout(3000);
 
@@ -968,57 +933,45 @@ async function uploadImages(productId) {
       await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
       await page.waitForTimeout(2000);
 
-      // 导航到 2026/${productId} 目录
-      log(`尝试进入目录: 2026/${productId}...`);
+      // 导航到 ${productId} 目录（根目录下）
+      log(`尝试进入根目录下的文件夹: ${productId}...`);
 
-      // 点击2026文件夹
-      const folder2026 = await page.$('li.next-tree-node:has-text("2026")');
-      if (folder2026) {
-        await folder2026.click();
-        await page.waitForTimeout(2000);
-        log('✅ 已点击2026文件夹', 'success');
+      // 查找并点击文件夹（在根目录"全部图片"下）
+      const folderSelectors = [
+        `li.next-tree-node[title="${productId}"]`,
+        `li.next-tree-node:has-text("${productId}")`
+      ];
 
-        // 展开2026文件夹
-        await ensureFolderExpanded(page, '2026');
-        await page.waitForTimeout(2000);
-
-        // 查找并点击子文件夹
-        const subFolderSelectors = [
-          `li.next-tree-node[title="${productId}"]`,
-          `li.next-tree-node:has-text("${productId}")`
-        ];
-
-        let foundSubFolder = false;
-        for (const selector of subFolderSelectors) {
-          try {
-            const subFolder = await page.$(selector);
-            if (subFolder) {
-              await subFolder.click();
-              await page.waitForTimeout(2000);
-              log(`✅ 已点击子文件夹: ${productId}`, 'success');
-              foundSubFolder = true;
-              break;
-            }
-          } catch (e) {
-            logVerbose(`选择器 ${selector} 未找到子文件夹`);
-          }
-        }
-
-        if (!foundSubFolder) {
-          log('⚠️ 未在左侧树中找到子文件夹，尝试在右侧双击', 'warning');
-          // 尝试在右侧找到并双击
-          const rightSideFolder = await page.$(`div:has-text("${productId}")`);
-          if (rightSideFolder) {
-            await rightSideFolder.dblclick();
+      let foundFolder = false;
+      for (const selector of folderSelectors) {
+        try {
+          const folder = await page.$(selector);
+          if (folder) {
+            await folder.click();
             await page.waitForTimeout(2000);
+            log(`✅ 已点击文件夹: ${productId}`, 'success');
+            foundFolder = true;
+            break;
           }
+        } catch (e) {
+          logVerbose(`选择器 ${selector} 未找到文件夹`);
         }
       }
 
-      // 验证面包屑
-      const breadcrumbVerify = await page.$(`text=全部图片/2026/${productId}`);
+      if (!foundFolder) {
+        log('⚠️ 未在左侧树中找到文件夹，尝试在右侧双击', 'warning');
+        // 尝试在右侧找到并双击
+        const rightSideFolder = await page.$(`div:has-text("${productId}")`);
+        if (rightSideFolder) {
+          await rightSideFolder.dblclick();
+          await page.waitForTimeout(2000);
+        }
+      }
+
+      // 验证面包屑（根目录下）
+      const breadcrumbVerify = await page.$(`text=全部图片/${productId}`);
       if (breadcrumbVerify) {
-        log(`✅ 面包屑验证成功: 全部图片/2026/${productId}`, 'success');
+        log(`✅ 面包屑验证成功: 全部图片/${productId}`, 'success');
       } else {
         log('⚠️ 面包屑验证失败，可能不在正确目录', 'warning');
       }
