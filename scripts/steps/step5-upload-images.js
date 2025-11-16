@@ -39,61 +39,156 @@ const step5 = async (ctx) => {
     const strategy = determineUploadStrategy(colorCount);
     ctx.logger.info(`使用策略: ${strategy.name}`);
 
-    // 步骤1：点击素材库按钮
-    ctx.logger.info('\n[步骤1] 点击素材库按钮');
-    await page.click('.next-tabs-tab:has-text("素材库")');
-    await page.waitForTimeout(2000); // 等待页面加载
+    // ========== 新流程开始 ==========
 
-    // 处理素材库页面的广告弹窗
-    ctx.logger.info('\n[步骤1.5] 处理广告弹窗');
-    await closeMaterialCenterPopups(page);
-    ctx.logger.success('✅ 素材库页面已清理广告弹窗');
-
-    // 步骤2：点击图片上传按钮
-    ctx.logger.info('\n[步骤2] 点击图片上传按钮');
-    await page.click('.next-tabs-tab:has-text("图片")');
+    // 步骤1：滚动到页面顶部
+    ctx.logger.info('\n[步骤1] 滚动到页面顶部');
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
     await page.waitForTimeout(1000);
+    ctx.logger.success('✅ 已滚动到顶部');
 
-    // 查找并点击上传按钮
-    const uploadButton = await page.$('.upload-btn .next-btn-primary:has-text("上传图片")');
-    if (uploadButton) {
-      await uploadButton.click();
-      ctx.logger.success('✅ 点击上传图片按钮');
-    } else {
-      // 尝试其他选择器
-      await page.click('text=上传图片');
-      ctx.logger.success('✅ 点击上传图片按钮（文本选择器）');
+    // 步骤2：禁用其他上传位，防止误点击
+    ctx.logger.info('\n[步骤2] 禁用其他上传位');
+    await page.evaluate(() => {
+      // 找到所有上传框
+      const uploadBoxes = document.querySelectorAll('.upload-pic-box, [class*="upload"], .sell-field-mainImagesGroup .upload-item');
+      uploadBoxes.forEach((box, index) => {
+        if (index > 0) {
+          box.style.pointerEvents = 'none';
+          box.style.opacity = '0.5';
+        }
+      });
+    });
+    ctx.logger.success('✅ 已禁用其他上传位');
+
+    // 步骤3：点击第一个白底图上传位
+    ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
+
+    // 多种可能的选择器，优先级从高到低
+    const uploadBoxSelectors = [
+      // 查找包含"上传图片"或"白底图"文字的按钮/区域
+      'button:has-text("上传图片")',
+      'div:has-text("上传图片")',
+      '[class*="upload"]:has-text("上传图片")',
+      // 查找第一个上传框
+      '.sell-field-mainImagesGroup .upload-pic-box:first-child',
+      '.upload-pic-box:first-child',
+      '[class*="mainImages"] .upload-item:first-child',
+      '.white-bg-image .upload-box:first-child',
+      // 通过图片上传icon查找
+      'svg[class*="upload"], i[class*="upload"]'
+    ];
+
+    let uploadBoxClicked = false;
+    for (const selector of uploadBoxSelectors) {
+      try {
+        const locator = page.locator(selector).first();
+        const count = await locator.count();
+        if (count > 0) {
+          await locator.click({ timeout: 5000 });
+          ctx.logger.success(`✅ 已点击第一个上传位（${selector}）`);
+          uploadBoxClicked = true;
+          break;
+        }
+      } catch (e) {
+        ctx.logger.warn(`尝试选择器失败: ${selector} - ${e.message}`);
+        continue;
+      }
     }
 
+    if (!uploadBoxClicked) {
+      throw new Error('无法找到上传位，请检查页面结构');
+    }
+
+    // 等待弹窗出现
+    ctx.logger.info('\n等待"选择图片"弹窗出现...');
+    try {
+      // 等待iframe或对话框出现
+      await page.waitForSelector('iframe, .next-dialog:has-text("选择图片")', { timeout: 10000 });
+      ctx.logger.success('✅ 弹窗已出现');
+    } catch (e) {
+      ctx.logger.warn('未检测到弹窗，尝试继续...');
+    }
     await page.waitForTimeout(2000);
 
-    // 步骤3：搜索并选择文件夹
-    ctx.logger.info('\n[步骤3] 搜索商品文件夹');
+    // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
+    ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
 
-    // 获取iframe
+    // 方案A：优先使用搜索框
+    try {
+      // 查找搜索框（可能在主页面或iframe中）
+      let searchInput = null;
+      let isInIframe = false;
+
+      // 先尝试主页面
+      const mainSearchInput = await page.$('input[placeholder*="文件夹"], input[placeholder*="搜索"]');
+      if (mainSearchInput) {
+        searchInput = mainSearchInput;
+        ctx.logger.info('  找到搜索框（主页面）');
+      } else {
+        // 尝试iframe
+        const uploadFrame = page.frameLocator('iframe').first();
+        searchInput = uploadFrame.locator('input[placeholder*="文件夹"], input[placeholder*="搜索"]');
+        isInIframe = true;
+        ctx.logger.info('  找到搜索框（iframe）');
+      }
+
+      // 输入 productId
+      if (isInIframe) {
+        await searchInput.fill(productId);
+      } else {
+        await searchInput.fill(productId);
+      }
+      ctx.logger.info(`  输入搜索关键词: ${productId}`);
+      await page.waitForTimeout(1500); // 等待下拉建议出现
+
+      // 点击下拉建议中的文件夹
+      if (isInIframe) {
+        const uploadFrame = page.frameLocator('iframe').first();
+        const folderSuggestion = uploadFrame.locator(`.next-menu-item:has-text("${productId}"), .folder-item:has-text("${productId}")`).first();
+        await folderSuggestion.click();
+      } else {
+        const folderSuggestion = await page.locator(`.next-menu-item:has-text("${productId}"), .folder-item:has-text("${productId}")`).first();
+        await folderSuggestion.click();
+      }
+      ctx.logger.success(`✅ 已选择文件夹: ${productId}`);
+      await page.waitForTimeout(2000);
+
+    } catch (searchError) {
+      // 方案B：搜索失败时，使用左侧文件夹树
+      ctx.logger.warn(`搜索框方案失败: ${searchError.message}`);
+      ctx.logger.info('  使用方案B：左侧文件夹树');
+
+      try {
+        const uploadFrame = page.frameLocator('iframe').first();
+        // 在左侧树中找到对应文件夹
+        const folderInTree = uploadFrame.locator(`.PicGroupList [title="${productId}"], .folder-tree [title="${productId}"]`).first();
+        await folderInTree.click();
+        ctx.logger.success(`✅ 已从侧边栏选择文件夹: ${productId}`);
+        await page.waitForTimeout(2000);
+      } catch (treeError) {
+        throw new Error(`两种方案都失败了。搜索: ${searchError.message}, 树导航: ${treeError.message}`);
+      }
+    }
+
+    // 获取 uploadFrame（如果需要在后续步骤中使用）
     const uploadFrame = page.frameLocator('iframe').first();
 
     try {
-      // 输入商品ID搜索文件夹
-      await uploadFrame.locator('input[placeholder*="文件夹"]').fill(productId);
-      ctx.logger.info(`  搜索文件夹: ${productId}`);
+      // 设置排序方式为文件名升序（可选，根据需要）
+      ctx.logger.info('\n[步骤5] 设置文件名升序');
+      try {
+        await uploadFrame.locator('.next-btn:has-text("文件名")').click();
+        await page.waitForTimeout(500);
+        await uploadFrame.locator('text=文件名升序').click();
+        ctx.logger.success('✅ 已设置文件名升序');
+      } catch (e) {
+        ctx.logger.warn('设置排序失败，继续执行');
+      }
       await page.waitForTimeout(1000);
 
-      // 点击搜索结果（第一个）
-      await uploadFrame.locator('.next-menu-item').first().click();
-      ctx.logger.success('✅ 选择文件夹');
-      await page.waitForTimeout(2000);
-
-      // 设置排序方式为文件名升序
-      ctx.logger.info('\n[步骤4] 设置文件名升序');
-      await uploadFrame.locator('.next-btn:has-text("文件名")').click();
-      await page.waitForTimeout(500);
-      await uploadFrame.locator('text=文件名升序').click();
-      ctx.logger.success('✅ 已设置文件名升序');
-      await page.waitForTimeout(1000);
-
-      // 步骤5：检查并选择图片
-      ctx.logger.info('\n[步骤5] 选择图片');
+      // 步骤6：检查并选择图片
+      ctx.logger.info('\n[步骤6] 选择图片');
 
       // 获取图片数量
       const imageCount = await uploadFrame.locator('.PicList_pic_background__pGTdV').count();
@@ -107,15 +202,15 @@ const step5 = async (ctx) => {
       const selectedCount = await selectImages(uploadFrame, imageCount, strategy, ctx);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // 步骤6：确认上传
-      ctx.logger.info('\n[步骤6] 确认上传');
+      // 步骤7：确认上传
+      ctx.logger.info('\n[步骤7] 确认上传');
       const confirmButton = uploadFrame.locator(`.next-btn-primary:has-text("确定(${selectedCount})")`);
       await confirmButton.click();
       ctx.logger.success('✅ 点击确定按钮');
       await page.waitForTimeout(3000);
 
-      // 步骤7：检查上传结果
-      ctx.logger.info('\n[步骤7] 验证上传结果');
+      // 步骤8：检查上传结果
+      ctx.logger.info('\n[步骤8] 验证上传结果');
 
       // 切换回主frame检查上传的图片
       const uploadedImages = await page.locator('.material-image-item').count();
@@ -125,7 +220,7 @@ const step5 = async (ctx) => {
       const successRate = (uploadedImages / Math.min(imageCount, 6) * 100).toFixed(1);
       ctx.logger.info(`上传成功率: ${successRate}%`);
 
-      // 步骤8：保存截图
+      // 步骤9：保存截图
       const screenshotDir = process.env.TAOBAO_SCREENSHOT_DIR ||
         path.resolve(process.cwd(), 'screenshots');
 

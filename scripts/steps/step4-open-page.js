@@ -21,14 +21,6 @@ const step4 = async (ctx) => {
   let page1; // 发布页面
 
   try {
-    // 检查storage路径
-    const storagePath = ctx.storagePath || process.env.TAOBAO_STORAGE_STATE_PATH;
-    if (!storagePath || !fs.existsSync(storagePath)) {
-      throw new Error('未找到登录状态文件，请先执行步骤3');
-    }
-
-    ctx.logger.info(`使用storage文件: ${storagePath}`);
-
     // 获取配置
     const headless = process.env.HEADLESS !== 'false';
     const timeout = parseInt(process.env.TAOBAO_TIMEOUT || '30000');
@@ -69,9 +61,13 @@ const step4 = async (ctx) => {
         timeout: timeout
       });
 
-      // 等待页面加载完成
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(2000);
+      // 等待页面加载完成（使用 try-catch 避免 networkidle 超时）
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+      } catch (e) {
+        ctx.logger.warn('页面未达到完全空闲状态，但继续执行（这是正常的）');
+      }
+      await page.waitForTimeout(3000);
 
       // 检查是否需要登录
       const currentUrl = page.url();
@@ -206,8 +202,12 @@ const step4 = async (ctx) => {
     // 设置页面1的超时
     page1.setDefaultTimeout(timeout);
 
-    // 等待发布页面加载
-    await page1.waitForLoadState('networkidle');
+    // 等待发布页面加载（使用 try-catch 避免 networkidle 超时）
+    try {
+      await page1.waitForLoadState('networkidle', { timeout: 10000 });
+    } catch (e) {
+      ctx.logger.warn('发布页面未达到完全空闲状态，但继续执行');
+    }
     await page1.waitForTimeout(3000);
 
     // 验证页面是否正确加载
@@ -225,13 +225,21 @@ const step4 = async (ctx) => {
     ctx.page = page; // 主页面
     ctx.page1 = page1; // 发布页面
 
-    // 截图保存
-    const screenshotPath = path.join(
-      screenshotDir,
-      `${ctx.productId}_step4_publish_page.png`
-    );
-    await page1.screenshot({ path: screenshotPath, fullPage: true });
-    ctx.logger.info(`截图已保存: ${screenshotPath}`);
+    // 截图保存（使用 try-catch 避免截图超时阻断流程）
+    try {
+      const screenshotPath = path.join(
+        screenshotDir,
+        `${ctx.productId}_step4_publish_page.png`
+      );
+      await page1.screenshot({
+        path: screenshotPath,
+        fullPage: false,  // 只截取可见区域，避免等待整页加载
+        timeout: 10000    // 10秒超时
+      });
+      ctx.logger.info(`截图已保存: ${screenshotPath}`);
+    } catch (screenshotError) {
+      ctx.logger.warn(`截图失败（但不影响流程）: ${screenshotError.message}`);
+    }
 
     // 更新缓存
     const taskCache = loadTaskCache(ctx.productId);

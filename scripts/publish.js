@@ -221,13 +221,24 @@ async function runSteps(options) {
     saveTaskCache(productId, currentCache);
   };
 
+  // 创建共享上下文（在所有步骤之间共享）
+  const sharedContext = {
+    productId,
+    taskCache,
+    stepStatus
+  };
+
   // 执行步骤
   for (const stepId of stepsToRun) {
     try {
       await beforeStep(stepId);
 
       const ctx = createStepContext(stepId);
+      // 合并共享上下文，保留之前步骤设置的属性
+      Object.assign(ctx, sharedContext);
       await ctx.runStep(stepId);
+      // 更新共享上下文，保存当前步骤设置的属性
+      Object.assign(sharedContext, { page: ctx.page, page1: ctx.page1, storagePath: ctx.storagePath });
 
       await afterStep(stepId, 'done');
     } catch (error) {
