@@ -225,6 +225,7 @@ async function forceRemoveSearchPanel(page, reason = '通用') {
 async function forceCloseUploadOverlay(page, reason = '上传结果弹窗') {
   logVerbose(`强制关闭上传浮层（原因: ${reason}）...`);
   try {
+    // 使用 Playwright locators 精确关闭对话框按钮
     const selectors = [
       '.next-dialog-close',
       '.next-dialog button.next-btn',
@@ -234,26 +235,40 @@ async function forceCloseUploadOverlay(page, reason = '上传结果弹窗') {
     ];
 
     for (const selector of selectors) {
-      try {
-        const locator = page.locator(selector);
-        const count = await locator.count();
-        for (let i = 0; i < count; i++) {
-          const btn = locator.nth(i);
-          if (await btn.isVisible().catch(() => false)) {
-            await btn.click().catch(() => {});
-            await page.waitForTimeout(200);
-          }
+      const locator = page.locator(selector);
+      const count = await locator.count();
+      for (let i = 0; i < count; i++) {
+        const btn = locator.nth(i);
+        if (await btn.isVisible().catch(() => false)) {
+          await btn.click().catch(() => {});
+          await page.waitForTimeout(200);
         }
-      } catch (e) {
-        logVerbose(`关闭浮层时跳过 ${selector}: ${e.message}`);
       }
     }
 
     // 最后一招：直接移除残留的 next-dialog 元素
     await page.evaluate(() => {
-      document.querySelectorAll('.next-dialog, [role="dialog"]').forEach(dialog => {
-        dialog.remove();
+      const selectorsToRemove = [
+        '.next-dialog',
+        '[role="dialog"]',
+        '.next-overlay-wrapper',
+        '.next-overlay-backdrop',
+        '.next-overlay-inner',
+        '.next-overlay'
+      ];
+      selectorsToRemove.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => el.remove());
       });
+
+      const masks = [
+        '.qnworkbench_search_panel',
+        '#qnworkbench_search_panel',
+        '.next-overlay-wrapper'
+      ];
+      masks.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => el.remove());
+      });
+
       document.body.style.pointerEvents = 'auto';
       document.body.style.overflow = 'auto';
     });
@@ -856,10 +871,10 @@ async function uploadImages(productId) {
 
       // 🔴 关键步骤：关闭上传结果浮窗
       log('步骤8: 强制关闭所有上传相关弹窗...');
-      await page.waitForTimeout(3000); // 等待上传结果浮窗出现
+      await page.waitForTimeout(1000); // 短暂等待浮窗出现
 
       // 多次尝试关闭所有可能的弹窗
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         logVerbose(`第 ${attempt + 1} 次尝试关闭弹窗...`);
 
         // 查找所有可能的关闭按钮
@@ -894,15 +909,15 @@ async function uploadImages(productId) {
           logVerbose('未找到可见的弹窗按钮');
         }
 
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(500);
       }
 
       // 强制按ESC键关闭任何残留弹窗
       log('按ESC键确保关闭所有弹窗...');
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
 
       // 🔴 关键步骤：清理搜索面板
       log('步骤9: 强制清理搜索面板和遮罩层...');
