@@ -4,6 +4,7 @@ const { Command } = require('commander');
 const { steps } = require('./steps');
 const { createStepLogger } = require('./utils/logger');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('./utils/cache');
+const { uploadImages } = require('./tools/upload-material-folder');
 
 // 步骤名称映射
 const stepNames = [
@@ -189,6 +190,27 @@ async function runSteps(options) {
 
     if (status === 'done') {
       console.log(`✅ [Step ${stepId}] 完成`);
+
+      // Step3（登录验证）完成后，自动调用素材库上传
+      if (stepId === 3) {
+        console.log('\n--- [Step 3.5 - 素材库上传] 开始 ---');
+        try {
+          const uploadResult = await uploadImages(productId);
+
+          if (uploadResult.success) {
+            console.log(`✅ [Step 3.5 - 素材库上传] 完成 - ${uploadResult.message}`);
+            if (options.verbose) {
+              console.log(`   上传文件数: ${uploadResult.uploadedFiles}`);
+            }
+          } else {
+            console.log(`⚠️  [Step 3.5 - 素材库上传] 失败: ${uploadResult.message}`);
+            console.log('   继续执行后续步骤...');
+          }
+        } catch (uploadError) {
+          console.error(`❌ [Step 3.5 - 素材库上传] 异常: ${uploadError.message}`);
+          console.log('   继续执行后续步骤...');
+        }
+      }
     } else {
       console.error(`❌ [Step ${stepId}] 失败: ${error?.message}`);
     }
