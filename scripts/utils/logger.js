@@ -22,7 +22,7 @@ function createStepLogger(productId, stepName) {
     fs.appendFileSync(logFilePath, logLine, 'utf8');
 
     // 同时输出到控制台
-    const colorCode = level === 'ERROR' ? '\x1b[31m' : level === 'SUCCESS' ? '\x1b[32m' : '\x1b[36m';
+    const colorCode = level === 'ERROR' ? '\x1b[31m' : level === 'SUCCESS' ? '\x1b[32m' : level === 'WARNING' ? '\x1b[33m' : '\x1b[36m';
     const reset = '\x1b[0m';
     console.log(`${colorCode}[Step ${stepName}]${reset} ${message}`);
   };
@@ -30,6 +30,9 @@ function createStepLogger(productId, stepName) {
   return {
     info(message, meta) {
       writeLog('info', message, meta);
+    },
+    warn(message, meta) {
+      writeLog('warning', message, meta);
     },
     error(message, meta) {
       writeLog('error', message, meta);
