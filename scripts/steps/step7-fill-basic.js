@@ -63,22 +63,21 @@ const step7 = async (ctx) => {
     await page.waitForTimeout(1000);
 
     // ============================================
-    // 步骤2：填写"商家编码"
+    // 步骤2：填写"商家编码"（销售信息页签）
     // ============================================
-    ctx.logger.info('\n[步骤2] 填写商家编码');
+    ctx.logger.info('\n[步骤2] 填写商家编码（销售信息页签）');
 
-    // 查找商家编码输入框 - 使用更精确的选择器
+    // 使用精确定位器，避免误匹配到品牌字段
     const merchantCodeSelectors = [
-      // 最精确：找到包含"商家编码"文本的区域，然后找其中真正的input[type="text"]
+      // 方法1：通过label定位
+      'label:has-text("商家编码") ~ div input',
+      'label:has-text("商家编码") + * input',
+      // 方法2：在销售信息区域内查找包含"商家编码"的div
+      '.sell-component-info-wrapper:has-text("商家编码") input[type="text"]',
       'div:has-text("商家编码") input[type="text"]',
-      'div:has-text("商家编码") .next-input input',
-      // 基于ID/data属性
-      '#sell-field-outerId input[type="text"]',
-      '[data-field="outerId"] input[type="text"]',
-      // 基于class和placeholder
-      '.sell-component-info-wrapper input[placeholder="请输入"][type="text"]',
-      // 更通用的方式
-      'input[placeholder="请输入"]:visible'
+      // 方法3：基于ID/data属性
+      '#sell-field-outerId input',
+      '[data-field="outerId"] input'
     ];
 
     let merchantCodeInput = null;
@@ -86,36 +85,46 @@ const step7 = async (ctx) => {
 
     for (const selector of merchantCodeSelectors) {
       try {
-        merchantCodeInput = await page.$(selector);
-        if (merchantCodeInput) {
-          const isVisible = await merchantCodeInput.isVisible();
-          const isEditable = await merchantCodeInput.isEditable();
+        // 使用locator API获取所有匹配的元素
+        const locator = page.locator(selector);
+        const count = await locator.count();
 
-          ctx.logger.info(`  检查 ${selector}: 可见=${isVisible}, 可编辑=${isEditable}`);
+        if (count > 0) {
+          // 遍历所有匹配的元素
+          for (let i = 0; i < count; i++) {
+            const element = locator.nth(i);
+            const isVisible = await element.isVisible().catch(() => false);
+            const isEditable = await element.isEditable().catch(() => false);
 
-          if (isVisible && isEditable) {
-            usedSelector = selector;
-            ctx.logger.info(`  ✅ 找到可编辑的商家编码输入框: ${selector}`);
-            break;
+            ctx.logger.info(`  检查 ${selector}[${i}]: 可见=${isVisible}, 可编辑=${isEditable}`);
+
+            if (isVisible && isEditable) {
+              merchantCodeInput = element;
+              usedSelector = `${selector}[${i}]`;
+              ctx.logger.success(`  ✅ 找到商家编码输入框: ${usedSelector}`);
+              break;
+            }
           }
         }
+
+        if (merchantCodeInput) break;
       } catch (e) {
-        // 继续尝试
+        ctx.logger.info(`  ${selector} 查找失败: ${e.message}`);
       }
     }
 
     if (!merchantCodeInput) {
-      throw new Error('未找到"商家编码"输入框');
+      throw new Error('❌ 未找到"销售信息-商家编码"输入框，请检查页面结构');
     }
 
-    // 填写商家编码 - 多种方法确保填写成功
+    // 填写商家编码
     await merchantCodeInput.click();
     await page.waitForTimeout(300);
 
     // 方法1：尝试使用fill方法
     try {
       await merchantCodeInput.fill(productId);
-      ctx.logger.info('  使用fill()方法填写');
+      ctx.logger.info(`  ⚙️ [销售信息] 商家编码 → ${productId}`);
     } catch (fillError) {
       ctx.logger.warn(`  fill()方法失败: ${fillError.message}，尝试备用方法`);
 
@@ -125,17 +134,18 @@ const step7 = async (ctx) => {
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }, productId);
-      ctx.logger.info('  使用JavaScript设置value');
+      ctx.logger.info(`  ⚙️ [销售信息] 商家编码 → ${productId} (使用JS)`);
     }
 
+    await merchantCodeInput.press('Enter');
     await page.waitForTimeout(500);
 
     // 验证填写结果
     const merchantCodeValue = await merchantCodeInput.inputValue();
     if (merchantCodeValue === productId) {
-      ctx.logger.success(`✅ 商家编码已填写: ${merchantCodeValue}`);
+      ctx.logger.success(`✅ 商家编码验证成功: ${merchantCodeValue}`);
     } else {
-      ctx.logger.warn(`⚠️  商家编码填写可能不完整: "${merchantCodeValue}" vs "${productId}"`);
+      throw new Error(`❌ 商家编码填写失败: 期望"${productId}"，实际"${merchantCodeValue}"`);
     }
 
     // ============================================
@@ -173,86 +183,79 @@ const step7 = async (ctx) => {
     await page.waitForTimeout(1000);
 
     // ============================================
-    // 步骤4：填写"货号"
+    // 步骤4：填写"货号"（基础信息页签）
     // ============================================
-    ctx.logger.info('\n[步骤4] 填写货号');
+    ctx.logger.info('\n[步骤4] 填写货号（基础信息页签）');
 
-    // 查找货号输入框 - 使用更精确的选择器
+    // 使用精确定位器，避免误匹配到品牌字段
     const skuSelectors = [
-      // 最精确：找到包含"货号"文本的区域，然后找其中真正的input[type="text"]
+      // 方法1：通过label定位
+      'label:has-text("货号") ~ div input',
+      'label:has-text("货号") + * input',
+      // 方法2：在包含"货号"的div中查找input
       'div:has-text("货号") input[type="text"]',
       'div:has-text("货号") .next-input input',
-      'span:has-text("货号") input[type="text"]',
-      // 基于placeholder和role
-      'input[placeholder="请输入"][role="combobox"]',
-      // 基于ID或data属性
-      '#sell-field-skuOuterId input[type="text"]',
-      '[data-field="skuOuterId"] input[type="text"]',
-      // 基于class（较通用）
-      '.sell-component-info-wrapper input[placeholder="请输入"][type="text"]'
+      'span:has-text("货号") + * input',
+      // 方法3：基于ID或data属性
+      '#sell-field-skuOuterId input',
+      '[data-field="skuOuterId"] input'
     ];
 
     let skuInput = null;
     let skuSelector = null;
 
+    // 尝试滚动到货号字段（可能在下方）
+    await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('label'));
+      const skuLabel = labels.find(l => l.textContent.includes('货号'));
+      if (skuLabel) {
+        skuLabel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+    await page.waitForTimeout(1000);
+
     for (const selector of skuSelectors) {
       try {
-        skuInput = await page.$(selector);
-        if (skuInput) {
-          const isVisible = await skuInput.isVisible();
-          const isEditable = await skuInput.isEditable();
+        // 使用locator API获取所有匹配的元素
+        const locator = page.locator(selector);
+        const count = await locator.count();
 
-          ctx.logger.info(`  检查 ${selector}: 可见=${isVisible}, 可编辑=${isEditable}`);
+        if (count > 0) {
+          // 遍历所有匹配的元素
+          for (let i = 0; i < count; i++) {
+            const element = locator.nth(i);
+            const isVisible = await element.isVisible().catch(() => false);
+            const isEditable = await element.isEditable().catch(() => false);
 
-          if (isVisible && isEditable) {
-            skuSelector = selector;
-            ctx.logger.info(`  ✅ 找到可编辑的货号输入框: ${selector}`);
-            break;
-          }
-        }
-      } catch (e) {
-        // 继续尝试
-      }
-    }
+            ctx.logger.info(`  检查 ${selector}[${i}]: 可见=${isVisible}, 可编辑=${isEditable}`);
 
-    if (!skuInput) {
-      // 如果还是找不到，尝试滚动页面
-      ctx.logger.warn('  货号输入框不可见，尝试滚动页面...');
-      await page.evaluate(() => {
-        window.scrollBy(0, 300);
-      });
-      await page.waitForTimeout(1000);
-
-      // 再次尝试查找
-      for (const selector of skuSelectors) {
-        try {
-          skuInput = await page.$(selector);
-          if (skuInput) {
-            const isVisible = await skuInput.isVisible();
-            if (isVisible) {
-              skuSelector = selector;
-              ctx.logger.info(`  滚动后找到货号输入框: ${selector}`);
+            if (isVisible && isEditable) {
+              skuInput = element;
+              skuSelector = `${selector}[${i}]`;
+              ctx.logger.success(`  ✅ 找到货号输入框: ${skuSelector}`);
               break;
             }
           }
-        } catch (e) {
-          // 继续尝试
         }
+
+        if (skuInput) break;
+      } catch (e) {
+        ctx.logger.info(`  ${selector} 查找失败: ${e.message}`);
       }
     }
 
     if (!skuInput) {
-      throw new Error('未找到"货号"输入框');
+      throw new Error('❌ 未找到"基础信息-货号"输入框，请检查页面结构');
     }
 
-    // 填写货号 - 多种方法确保填写成功
+    // 填写货号
     await skuInput.click();
     await page.waitForTimeout(300);
 
     // 方法1：尝试使用fill方法
     try {
       await skuInput.fill(productId);
-      ctx.logger.info('  使用fill()方法填写');
+      ctx.logger.info(`  ⚙️ [基础信息] 货号 → ${productId}`);
     } catch (fillError) {
       ctx.logger.warn(`  fill()方法失败: ${fillError.message}，尝试备用方法`);
 
@@ -262,17 +265,18 @@ const step7 = async (ctx) => {
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }, productId);
-      ctx.logger.info('  使用JavaScript设置value');
+      ctx.logger.info(`  ⚙️ [基础信息] 货号 → ${productId} (使用JS)`);
     }
 
+    await skuInput.press('Enter');
     await page.waitForTimeout(500);
 
     // 验证填写结果
     const skuValue = await skuInput.inputValue();
     if (skuValue === productId) {
-      ctx.logger.success(`✅ 货号已填写: ${skuValue}`);
+      ctx.logger.success(`✅ 货号验证成功: ${skuValue}`);
     } else {
-      ctx.logger.warn(`⚠️  货号填写可能不完整: "${skuValue}" vs "${productId}"`);
+      throw new Error(`❌ 货号填写失败: 期望"${productId}"，实际"${skuValue}"`);
     }
 
     // ============================================
