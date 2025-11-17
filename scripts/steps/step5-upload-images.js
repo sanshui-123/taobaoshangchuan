@@ -565,8 +565,8 @@ const step5 = async (ctx) => {
         throw new Error('文件夹中没有找到图片卡片容器（已尝试多个选择器）');
       }
 
-      // 根据策略选择图片（传递卡片容器选择器）
-      const selectedCount = await selectImages(uploadLocator, imageCount, strategy, ctx, imageCardSelector);
+      // 根据颜色数智能选择图片（使用新的选择规则）
+      const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, ctx);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
       // 步骤7：确认上传
@@ -786,59 +786,173 @@ async function clickImageCard(cardLocator, index, ctx) {
 }
 
 /**
- * 选择图片（点击图片卡片容器）
+ * 正数索引选择（first）
+ * @param {number} k - 位置参数（从1开始）
+ * @param {number} imageCount - 图片总数
+ * @returns {number} 安全的索引值（从0开始）
  */
-async function selectImages(uploadFrame, imageCount, strategy, ctx, imageCardSelector) {
+function pickIndexFirst(k, imageCount) {
+  let index = k - 1;  // first(k) → k - 1，例如 first(6) = 索引5
+
+  // 边界保护
+  if (index < 0) index = 0;
+  if (index >= imageCount) index = imageCount - 1;
+
+  return index;
+}
+
+/**
+ * 倒数索引选择（last）
+ * @param {number} k - 倒数位置参数（从1开始）
+ * @param {number} imageCount - 图片总数
+ * @returns {number} 安全的索引值（从0开始）
+ */
+function pickIndexLast(k, imageCount) {
+  let index = imageCount - k;  // last(k) → imageCount - k，例如 last(1) = 最后一张
+
+  // 边界保护
+  if (index < 0) index = 0;
+  if (index >= imageCount) index = imageCount - 1;
+
+  return index;
+}
+
+/**
+ * 根据颜色数智能选择图片
+ * 新规则：统一点击5张，每一击根据颜色数决定点击倒数/正数第几个元素
+ * @param {Locator} uploadFrame - 上传弹窗的定位器（iframe或page）
+ * @param {number} imageCount - 图片总数
+ * @param {number} colorCount - 颜色数量
+ * @param {object} ctx - 上下文对象
+ * @returns {number} 成功选择的图片数量
+ */
+async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
   let selectedCount = 0;
 
-  // 使用传入的卡片容器选择器，如果未传入则使用默认值
-  const selector = imageCardSelector || '.PicList_pic_background__pGTdV';
+  ctx.logger.info(`\n📋 开始智能选择图片`);
+  ctx.logger.info(`  颜色数: ${colorCount}`);
+  ctx.logger.info(`  总图片数: ${imageCount}`);
+  ctx.logger.info(`  规则: 固定5次点击，根据颜色数智能选择索引\n`);
 
-  ctx.logger.info(`  📋 开始选择图片，策略: ${strategy.name}`);
+  // 定义5次点击的索引选择规则
+  const clickRules = [
+    // 第1张：始终 last(1)
+    {
+      name: '第1张',
+      getIndex: () => pickIndexLast(1, imageCount),
+      getRuleName: () => 'last(1)'
+    },
 
-  switch (strategy.name) {
-    case '单色策略':
-      // 单色：选择前6张
-      const singleColorCount = Math.min(imageCount, 6);
-      for (let i = 0; i < singleColorCount; i++) {
-        const cardLocator = uploadFrame.locator(selector).nth(i);
-        const success = await clickImageCard(cardLocator, i, ctx);
-        if (success) selectedCount++;
-        await new Promise(resolve => setTimeout(resolve, 200));
+    // 第2张：colorCount >= 2 用 first(6)，否则 last(2)
+    {
+      name: '第2张',
+      getIndex: () => {
+        if (colorCount >= 2) return pickIndexFirst(6, imageCount);
+        else return pickIndexLast(2, imageCount);
+      },
+      getRuleName: () => colorCount >= 2 ? 'first(6)' : 'last(2)'
+    },
+
+    // 第3张：根据颜色数选择
+    {
+      name: '第3张',
+      getIndex: () => {
+        if (colorCount === 2) return pickIndexLast(2, imageCount);
+        else if (colorCount >= 3) return pickIndexFirst(12, imageCount);
+        else return pickIndexLast(3, imageCount);  // colorCount === 1
+      },
+      getRuleName: () => {
+        if (colorCount === 2) return 'last(2)';
+        else if (colorCount >= 3) return 'first(12)';
+        else return 'last(3)';
       }
-      break;
+    },
 
-    case '双色策略':
-      // 双色：第一张主图（带商品ID）+ 第二色的前2张
-      // 先找带商品ID的图片
-      const hasProductId = await uploadFrame.locator(`${selector}:has-text("${ctx.productId}")`).count();
-      if (hasProductId > 0) {
-        const cardLocator = uploadFrame.locator(`${selector}:has-text("${ctx.productId}")`).first();
-        const success = await clickImageCard(cardLocator, 0, ctx);
-        if (success) selectedCount++;
+    // 第4张：根据颜色数选择
+    {
+      name: '第4张',
+      getIndex: () => {
+        if (colorCount === 2) return pickIndexFirst(5, imageCount);
+        else if (colorCount === 3) return pickIndexLast(2, imageCount);
+        else if (colorCount >= 4) return pickIndexFirst(18, imageCount);
+        else return pickIndexLast(4, imageCount);  // colorCount === 1
+      },
+      getRuleName: () => {
+        if (colorCount === 2) return 'first(5)';
+        else if (colorCount === 3) return 'last(2)';
+        else if (colorCount >= 4) return 'first(18)';
+        else return 'last(4)';
+      }
+    },
+
+    // 第5张：根据颜色数选择（复杂规则）
+    {
+      name: '第5张',
+      getIndex: () => {
+        if (colorCount === 1) return pickIndexLast(5, imageCount);
+        else if (colorCount === 2) return pickIndexLast(3, imageCount);
+        else if (colorCount === 3) return pickIndexFirst(5, imageCount);
+        else if (colorCount === 4) return pickIndexFirst(24, imageCount);
+        else if (colorCount === 5) return pickIndexFirst(30, imageCount);
+        else return pickIndexFirst(30, imageCount);  // colorCount >= 6
+      },
+      getRuleName: () => {
+        if (colorCount === 1) return 'last(5)';
+        else if (colorCount === 2) return 'last(3)';
+        else if (colorCount === 3) return 'first(5)';
+        else if (colorCount === 4) return 'first(24)';
+        else if (colorCount === 5) return 'first(30)';
+        else return 'first(30)';  // colorCount >= 6
+      }
+    }
+  ];
+
+  // 执行5次点击
+  for (let i = 0; i < clickRules.length; i++) {
+    const rule = clickRules[i];
+    const targetIndex = rule.getIndex();
+    const ruleName = rule.getRuleName();
+
+    ctx.logger.info(`${rule.name} → 索引${targetIndex} (${ruleName})`);
+
+    try {
+      // 检查该索引是否有元素
+      const baseLocator = uploadFrame.locator('.PicList_pic_background__pGTdV').nth(targetIndex);
+      const count = await baseLocator.count();
+
+      if (count === 0) {
+        ctx.logger.warn(`  ⚠️  索引${targetIndex}没有元素，跳过`);
+        continue;
       }
 
-      // 再从颜色2选择2张
-      const remaining = Math.min(imageCount - selectedCount, 2);
-      for (let i = selectedCount; i < selectedCount + remaining && i < imageCount; i++) {
-        const cardLocator = uploadFrame.locator(selector).nth(i);
-        const success = await clickImageCard(cardLocator, i, ctx);
-        if (success) selectedCount++;
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      break;
+      // 找到父容器 PicList_picItem（使用 xpath 定位祖先元素）
+      const card = baseLocator.locator('xpath=ancestor::div[contains(@class,"PicList_picItem")]').first();
 
-    default:
-      // 多色：每个颜色选1张（最多5张，避免第6张滚动问题）
-      const multiColorCount = Math.min(imageCount, 5);
-      for (let i = 0; i < multiColorCount; i++) {
-        const cardLocator = uploadFrame.locator(selector).nth(i);
-        const success = await clickImageCard(cardLocator, i, ctx);
-        if (success) selectedCount++;
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
+      // 滚动到视图中
+      await card.scrollIntoViewIfNeeded({ timeout: 3000 });
+
+      // 等待可见
+      await card.waitFor({ state: 'visible', timeout: 3000 });
+
+      // 等待动画稳定
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 点击父容器
+      await card.click({ timeout: 3000 });
+
+      selectedCount++;
+      ctx.logger.info(`  ✅ ${rule.name} → 索引${targetIndex} → 成功`);
+
+    } catch (error) {
+      ctx.logger.warn(`  ❌ ${rule.name} → 索引${targetIndex} → 失败: ${error.message}`);
+      // 继续尝试剩余索引
+    }
+
+    // 点击间隔，避免操作过快
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
 
+  ctx.logger.info(`\n✅ 图片选择完成：成功 ${selectedCount}/5 张\n`);
   return selectedCount;
 }
 
