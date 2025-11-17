@@ -64,9 +64,25 @@ program
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
 
-  // 参数验证
-  if (!productId && !batchIds) {
-    console.error('❌ 错误：必须指定 --product 或 --batch 参数之一');
+  // 确定要执行的步骤范围
+  let stepsToRun = [];
+  if (options.step && options.step.length > 0) {
+    stepsToRun = options.step;
+  } else if (options.from !== undefined && options.to !== undefined) {
+    for (let i = options.from; i <= options.to; i++) {
+      stepsToRun.push(i);
+    }
+  } else {
+    for (let i = 0; i <= 14; i++) {
+      stepsToRun.push(i);
+    }
+  }
+
+  // 参数验证：只有在不包含 Step0 且没有商品ID时才报错
+  const includesStep0 = stepsToRun.includes(0);
+
+  if (!productId && !batchIds && !includesStep0) {
+    console.error('❌ 错误：必须指定 --product 或 --batch 参数，或者执行范围包含 Step0（自动取单模式）');
     process.exit(1);
   }
 
@@ -99,7 +115,9 @@ async function runSteps(options) {
   }
 
   // 单商品模式（原有逻辑）
-  console.log(`\n🚀 开始执行商品发布流程 - ProductID: ${productId}`);
+  // 自动取单模式：如果包含 Step0 且没有指定 productId，则先用临时标识
+  const tempProductId = productId || 'auto_fetching';
+  console.log(`\n🚀 开始执行商品发布流程${productId ? ' - ProductID: ' + productId : ' - 自动取单模式'}`);
   console.log('='.repeat(60));
 
   // 详细模式下显示配置信息
@@ -107,8 +125,8 @@ async function runSteps(options) {
     printConfig();
   }
 
-  // 加载或创建任务缓存
-  const taskCache = loadTaskCache(productId);
+  // 加载或创建任务缓存（自动模式下使用临时ID）
+  const taskCache = loadTaskCache(tempProductId);
 
   // 初始化步骤状态
   const stepStatus = {
@@ -158,12 +176,29 @@ async function runSteps(options) {
     return;
   }
 
+  // 创建共享上下文（在所有步骤之间共享）
+  const sharedContext = {
+    productId: productId || null,  // 自动模式下初始为 null
+    taskCache,
+    stepStatus
+  };
+
+  // 辅助函数：解析当前真实的 productId
+  const resolveProductId = () => {
+    // 如果已有 productId，直接返回
+    if (productId) return productId;
+
+    // 否则从共享上下文获取（Step0 会设置）
+    return sharedContext.productId || tempProductId;
+  };
+
   // 创建步骤上下文
   const createStepContext = (stepId) => {
-    const logger = createStepLogger(productId, stepId.toString());
+    const currentProductId = resolveProductId();
+    const logger = createStepLogger(currentProductId, stepId.toString());
 
     return {
-      productId,
+      productId: currentProductId,
       taskCache,
       logger,
       stepStatus,
@@ -184,9 +219,12 @@ async function runSteps(options) {
 
   // 步骤后置钩子
   const afterStep = async (stepId, status, error) => {
+    // 动态解析 productId
+    const currentProductId = resolveProductId();
+
     // 更新状态
     stepStatus[stepId] = status;
-    updateStepStatus(productId, stepId, status);
+    updateStepStatus(currentProductId, stepId, status);
 
     if (status === 'done') {
       console.log(`✅ [Step ${stepId}] 完成`);
@@ -195,7 +233,7 @@ async function runSteps(options) {
       if (stepId === 3) {
         console.log('\n--- [Step 3.5 - 素材库上传] 开始 ---');
         try {
-          const uploadResult = await uploadImages(productId);
+          const uploadResult = await uploadImages(currentProductId);
 
           if (uploadResult.success) {
             console.log(`✅ [Step 3.5 - 素材库上传] 完成 - ${uploadResult.message}`);
@@ -216,16 +254,9 @@ async function runSteps(options) {
     }
 
     // 保存缓存
-    const currentCache = loadTaskCache(productId);
+    const currentCache = loadTaskCache(currentProductId);
     currentCache.stepStatus = stepStatus;
-    saveTaskCache(productId, currentCache);
-  };
-
-  // 创建共享上下文（在所有步骤之间共享）
-  const sharedContext = {
-    productId,
-    taskCache,
-    stepStatus
+    saveTaskCache(currentProductId, currentCache);
   };
 
   // 执行步骤
@@ -239,6 +270,12 @@ async function runSteps(options) {
       await ctx.runStep(stepId);
       // 更新共享上下文，保存当前步骤设置的属性
       Object.assign(sharedContext, { page: ctx.page, page1: ctx.page1, storagePath: ctx.storagePath });
+
+      // Step0 执行完成后，提取真实的 productId
+      if (stepId === 0 && ctx.productId && ctx.productId !== tempProductId) {
+        sharedContext.productId = ctx.productId;
+        console.log(`\n✅ 自动取单成功 - ProductID: ${ctx.productId}`);
+      }
 
       await afterStep(stepId, 'done');
     } catch (error) {

@@ -118,6 +118,10 @@ async function processRecord(record, ctx) {
   const productIdField = fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
   const productId = Array.isArray(productIdField) ? productIdField[0] : productIdField;
 
+  // 回写商品ID到上下文（用于自动取单模式）
+  ctx.productId = productId;
+  ctx.logger.info(`已从飞书获取商品ID: ${productId}`);
+
   // 获取当前状态
   const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
   let currentStatus = fields[statusField];
