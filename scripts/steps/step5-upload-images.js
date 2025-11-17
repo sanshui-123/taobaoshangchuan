@@ -569,70 +569,11 @@ const step5 = async (ctx) => {
       const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, ctx);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // 步骤7：确认上传
-      ctx.logger.info('\n[步骤7] 确认上传');
+      // 步骤7：等待弹窗自动关闭
+      ctx.logger.info('\n[步骤7] 等待弹窗自动关闭');
+      ctx.logger.info('  💡 素材库在选满图片后会自动关闭弹窗，无需手动点击确定按钮');
 
-      // 尝试多种确定按钮选择器（在iframe中和主页面中都尝试）
-      const confirmButtonSelectors = [
-        `.next-btn-primary:has-text("确定(${selectedCount})")`,  // 带数字的确定按钮
-        `.next-btn-primary:has-text("确定")`,                     // 不带数字的确定按钮
-        `button:has-text("确定(${selectedCount})")`,             // button标签
-        `button:has-text("确定")`,                                // button标签（不带数字）
-        `.next-btn-primary`,                                      // 主按钮（通常是确定）
-        `[class*="btn"][class*="primary"]:has-text("确定")`,     // 通用主按钮
-        `button.next-btn-primary`,                                // Next UI 主按钮
-        `[class*="Footer"] button:has-text("确定")`,             // Footer中的确定按钮
-        `.next-dialog-footer button:has-text("确定")`            // 对话框底部的确定按钮
-      ];
-
-      let buttonClicked = false;
-
-      // 先在iframe中查找
-      ctx.logger.info('  🔍 在iframe中查找确定按钮...');
-      for (const selector of confirmButtonSelectors) {
-        try {
-          const button = uploadLocator.locator(selector).first();
-          const count = await button.count();
-          ctx.logger.info(`    尝试 "${selector}": ${count} 个`);
-          if (count > 0) {
-            await button.waitFor({ state: 'visible', timeout: 5000 });
-            await button.click({ timeout: 5000 });
-            ctx.logger.success(`  ✅ 点击确定按钮（选择器: ${selector}）`);
-            buttonClicked = true;
-            break;
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-
-      // 如果iframe中没找到，尝试在主页面中查找
-      if (!buttonClicked) {
-        ctx.logger.warn('  iframe中未找到，尝试在主页面查找...');
-        for (const selector of confirmButtonSelectors) {
-          try {
-            const button = page.locator(selector).first();
-            const count = await button.count();
-            ctx.logger.info(`    主页面尝试 "${selector}": ${count} 个`);
-            if (count > 0) {
-              await button.waitFor({ state: 'visible', timeout: 5000 });
-              await button.click({ timeout: 5000 });
-              ctx.logger.success(`  ✅ 在主页面点击确定按钮（选择器: ${selector}）`);
-              buttonClicked = true;
-              break;
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-      }
-
-      if (!buttonClicked) {
-        ctx.logger.warn('  ⚠️  未找到确定按钮，可能弹窗已自动关闭');
-        ctx.logger.info('  💡 等待弹窗自动关闭并验证上传结果...');
-      }
-
-      // 等待弹窗关闭（无论是点击确定还是自动关闭）
+      // 等待弹窗自动关闭
       await page.waitForTimeout(2000);
 
       // 关闭弹窗后再次滚动到顶部，确保页面不会跳回底部
@@ -834,6 +775,11 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
   ctx.logger.info(`  总图片数: ${imageCount}`);
   ctx.logger.info(`  规则: 固定5次点击，根据颜色数智能选择索引\n`);
 
+  // 🔧 修复：提前缓存所有图片元素，避免 DOM 重排导致索引偏移
+  ctx.logger.info('  📦 缓存图片列表（避免DOM重排影响）...');
+  const handles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
+  ctx.logger.info(`  ✅ 已缓存 ${handles.length} 个图片元素\n`);
+
   // 定义5次点击的索引选择规则
   const clickRules = [
     // 第1张：始终 last(1)
@@ -913,35 +859,34 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
     const targetIndex = rule.getIndex();
     const ruleName = rule.getRuleName();
 
-    ctx.logger.info(`${rule.name} → 索引${targetIndex} (${ruleName})`);
+    // 边界保护：确保索引在有效范围内
+    const actualIndex = Math.min(Math.max(targetIndex, 0), handles.length - 1);
+
+    ctx.logger.info(`${rule.name} → 目标索引${targetIndex} (${ruleName}) → 实际索引${actualIndex}`);
 
     try {
-      // 检查该索引是否有元素
-      const card = uploadFrame.locator('.PicList_pic_background__pGTdV').nth(targetIndex);
-      const count = await card.count();
+      // 从缓存的 handles 中取元素（避免 DOM 重排影响）
+      const elementHandle = handles[actualIndex];
 
-      if (count === 0) {
-        ctx.logger.warn(`  ⚠️  索引${targetIndex}没有元素，跳过`);
+      if (!elementHandle) {
+        ctx.logger.warn(`  ⚠️  索引${actualIndex}没有元素，跳过`);
         continue;
       }
 
       // 滚动到视图中
-      await card.scrollIntoViewIfNeeded({ timeout: 3000 });
-
-      // 等待可见
-      await card.waitFor({ state: 'visible', timeout: 3000 });
+      await elementHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
 
       // 等待动画稳定
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // 直接点击图片卡片
-      await card.click({ timeout: 3000 });
+      await elementHandle.click({ timeout: 3000 });
 
       selectedCount++;
-      ctx.logger.info(`  ✅ ${rule.name} → 索引${targetIndex} → 成功`);
+      ctx.logger.info(`  ✅ ${rule.name} → 索引${actualIndex} → 成功`);
 
     } catch (error) {
-      ctx.logger.warn(`  ❌ ${rule.name} → 索引${targetIndex} → 失败: ${error.message}`);
+      ctx.logger.warn(`  ❌ ${rule.name} → 索引${actualIndex} → 失败: ${error.message}`);
       // 继续尝试剩余索引
     }
 
