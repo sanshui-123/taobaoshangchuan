@@ -725,8 +725,15 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
 
   // 🔧 修复：提前缓存所有图片元素，避免 DOM 重排导致索引偏移
   ctx.logger.info('  📦 缓存图片列表（避免DOM重排影响）...');
-  const handles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
-  ctx.logger.info(`  ✅ 已缓存 ${handles.length} 个图片元素\n`);
+  const cardHandles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
+  ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
+
+  // 🔧 封装获取卡片的辅助函数（带边界保护）
+  const getCardByIndex = (targetIndex) => {
+    // 边界保护：确保索引在有效范围内
+    const actualIndex = Math.min(Math.max(targetIndex, 0), cardHandles.length - 1);
+    return { handle: cardHandles[actualIndex], actualIndex };
+  };
 
   // 定义5次点击的索引选择规则
   const clickRules = [
@@ -807,34 +814,33 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
     const targetIndex = rule.getIndex();
     const ruleName = rule.getRuleName();
 
-    // 边界保护：确保索引在有效范围内
-    const actualIndex = Math.min(Math.max(targetIndex, 0), handles.length - 1);
-
-    ctx.logger.info(`${rule.name} → 目标索引${targetIndex} (${ruleName}) → 实际索引${actualIndex}`);
+    ctx.logger.info(`${rule.name} → 目标索引${targetIndex} (${ruleName})`);
 
     try {
-      // 从缓存的 handles 中取元素（避免 DOM 重排影响）
-      const elementHandle = handles[actualIndex];
+      // 从缓存的 cardHandles 中获取元素（避免 DOM 重排影响）
+      const { handle: cardHandle, actualIndex } = getCardByIndex(targetIndex);
 
-      if (!elementHandle) {
+      if (!cardHandle) {
         ctx.logger.warn(`  ⚠️  索引${actualIndex}没有元素，跳过`);
         continue;
       }
 
+      ctx.logger.info(`  → 实际索引${actualIndex}`);
+
       // 滚动到视图中
-      await elementHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
+      await cardHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
 
       // 等待动画稳定
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // 直接点击图片卡片
-      await elementHandle.click({ timeout: 3000 });
+      // 直接点击图片卡片（elementHandle 可以直接调用 click）
+      await cardHandle.click({ timeout: 3000 });
 
       selectedCount++;
       ctx.logger.info(`  ✅ ${rule.name} → 索引${actualIndex} → 成功`);
 
     } catch (error) {
-      ctx.logger.warn(`  ❌ ${rule.name} → 索引${actualIndex} → 失败: ${error.message}`);
+      ctx.logger.warn(`  ❌ ${rule.name} → 失败: ${error.message}`);
       // 继续尝试剩余索引
     }
 
