@@ -1,252 +1,209 @@
-const fs = require('fs');
-const path = require('path');
-const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
-const { feishuClient } = require('../feishu/client');
-
 /**
- * 步骤6：选择品牌
- * 从下拉框中选择商品品牌
+ * Step 6: 选择品牌
+ *
+ * 功能：
+ * 1. 直接在品牌输入框输入品牌名称（不使用下拉列表）
+ * 2. 验证品牌是否填入成功
+ * 3. 缓存选择的品牌信息
  */
-const step6 = async (ctx) => {
-  ctx.logger.info('开始选择商品品牌');
 
-  // 创建心跳定时器
-  const heartbeat = setInterval(() => {
-    process.stdout.write('.');
-  }, 5000);
+const path = require('path');
+const fs = require('fs');
+const { loadTaskCache, saveTaskCache } = require('../utils/cache');
 
-  try {
-    // 检查是否有页面引用
-    if (!ctx.page1) {
-      throw new Error('未找到发布页面，请先执行步骤4');
-    }
+class BrandSelector {
+  /**
+   * 直接输入品牌名称
+   * @param {*} page - Playwright page对象
+   * @param {string} brand - 品牌名称
+   * @param {*} ctx - 上下文对象（包含logger等）
+   */
+  async selectBrand(page, brand, ctx) {
+    // 步骤1：定位品牌输入框
+    ctx.logger.info('\n[步骤1] 定位品牌输入框');
 
-    const page = ctx.page1;
+    // 等待页面加载完成
+    ctx.logger.info('  等待页面加载完成...');
+    await page.waitForTimeout(1000);
 
-    // 加载缓存获取商品信息
-    const taskCache = loadTaskCache(ctx.productId);
-    if (!taskCache.productData || !taskCache.productData.brand) {
-      throw new Error('缓存中没有品牌信息');
-    }
+    ctx.logger.info('  尝试定位品牌输入框...');
 
-    const brand = taskCache.productData.brand;
-    ctx.logger.info(`商品品牌: ${brand}`);
-
-    // 步骤1：点击品牌下拉框
-    ctx.logger.info('\n[步骤1] 定位品牌下拉框');
-
-    // 尝试多种选择器找到品牌输入框
-    const brandSelectors = [
-      '#sell-field-brand .next-select-selection',
-      '[data-field="brand"] .next-select-selection',
-      '.brand-field .next-select',
-      'div:has-text("品牌") + .next-select',
-      'input[placeholder*="品牌"]',
-      '.next-select:has-text("请选择品牌")'
+    // 使用更稳定的选择器，基于role和placeholder
+    const inputSelectors = [
+      // 基于 role 和 name
+      'input[role="combobox"][name="请输入"]',
+      // 基于 placeholder
+      'input[placeholder="请输入"]',
+      // 基于品牌字段
+      '#sell-field-brand input',
+      '[data-field="brand"] input',
+      // 基于父容器文本
+      'div:has-text("品牌") input',
+      // 通用 combobox
+      'input[role="combobox"]'
     ];
 
-    let brandSelect = null;
-    for (const selector of brandSelectors) {
+    let brandInput = null;
+    let matchedSelector = null;
+
+    for (let i = 0; i < inputSelectors.length; i++) {
+      const selector = inputSelectors[i];
+      ctx.logger.info(`  [${i + 1}/${inputSelectors.length}] 尝试: ${selector}`);
+
       try {
-        brandSelect = await page.$(selector);
-        if (brandSelect) {
-          ctx.logger.success(`✅ 找到品牌下拉框: ${selector}`);
-          break;
+        const element = await page.waitForSelector(selector, { timeout: 2000, state: 'attached' }).catch(() => null);
+        if (element) {
+          // 检查元素是否可见
+          const isVisible = await element.isVisible();
+          ctx.logger.info(`    找到元素，可见性: ${isVisible}`);
+
+          if (isVisible) {
+            brandInput = element;
+            matchedSelector = selector;
+            ctx.logger.success(`✅ 找到品牌输入框: ${selector}`);
+            break;
+          }
         }
       } catch (e) {
         // 继续尝试下一个选择器
       }
     }
 
-    if (!brandSelect) {
-      throw new Error('未找到品牌下拉框');
+    if (!brandInput) {
+      throw new Error('未找到品牌输入框');
     }
 
-    // 步骤2：打开下拉菜单
-    ctx.logger.info('\n[步骤2] 打开品牌下拉菜单');
-    await brandSelect.click();
+    // 步骤2：直接输入品牌名称
+    ctx.logger.info(`\n[步骤2] 直接输入品牌: ${brand}`);
+
+    // 点击输入框获取焦点
+    await brandInput.click();
+    await page.waitForTimeout(300);
+
+    // 清空现有内容
+    await brandInput.fill('');
+    await page.waitForTimeout(200);
+
+    // 填入品牌名称
+    await brandInput.fill(brand);
+    ctx.logger.success(`✅ 已输入品牌名称: ${brand}`);
+
+    // 等待页面接收输入
     await page.waitForTimeout(500);
 
-    // 步骤3：搜索品牌
-    ctx.logger.info(`\n[步骤3] 搜索品牌: ${brand}`);
-
-    // 查找搜索输入框
-    const searchInput = await page.$('.next-select-dropdown-search-input input');
-
-    if (searchInput) {
-      await searchInput.fill(brand);
-      ctx.logger.success(`✅ 输入品牌名称: ${brand}`);
-      await page.waitForTimeout(1000);
-    } else {
-      ctx.logger.warn('未找到品牌搜索输入框，直接浏览品牌列表');
-    }
-
-    // 步骤4：从下拉列表中选择品牌
-    ctx.logger.info('\n[步骤4] 从下拉列表选择品牌');
-
-    // 品牌选择策略
-    let brandSelected = false;
-    const selectionStrategies = [
-      // 策略1：精确匹配
-      {
-        name: '精确匹配',
-        selector: `.next-select-dropdown-menu-item:has-text("${brand}")`,
-        exact: true
-      },
-      // 策略2：包含匹配
-      {
-        name: '包含匹配',
-        selector: `.next-select-dropdown-menu-item:has-text("${brand.substring(0, 3)}")`,
-        exact: false
-      },
-      // 策略3：模糊匹配
-      {
-        name: '模糊匹配',
-        selector: `.next-select-dropdown-menu-item`,
-        filter: (item, brand) => {
-          return item.textContent && item.textContent.toLowerCase().includes(brand.toLowerCase());
-        }
-      }
-    ];
-
-    for (const strategy of selectionStrategies) {
-      ctx.logger.info(`  尝试${strategy.name}...`);
-
-      try {
-        if (strategy.exact) {
-          // 精确匹配或包含匹配
-          const brandOption = await page.$(strategy.selector);
-          if (brandOption) {
-            await brandOption.click();
-            brandSelected = true;
-            ctx.logger.success(`✅ ${strategy.name}成功: ${brand}`);
-            break;
-          }
-        } else if (strategy.filter) {
-          // 模糊匹配
-          const options = await page.$$(strategy.selector);
-          for (const option of options) {
-            const text = await option.textContent();
-            if (text && strategy.filter({ textContent: text }, brand)) {
-              await option.click();
-              brandSelected = true;
-              ctx.logger.success(`✅ ${strategy.name}成功: ${text}`);
-              break;
-            }
-          }
-          if (brandSelected) break;
-        }
-      } catch (error) {
-        ctx.logger.warn(`  ${strategy.name}失败: ${error.message}`);
-      }
-
+    // 尝试按回车确认
+    try {
+      await brandInput.press('Enter');
+      ctx.logger.info('  已按回车确认');
       await page.waitForTimeout(500);
+    } catch (e) {
+      ctx.logger.info('  回车确认跳过');
     }
 
-    // 如果都没找到，尝试点击第一个选项（避免空值）
-    if (!brandSelected) {
-      ctx.logger.warn('\n未找到匹配品牌，尝试选择第一个选项...');
-      try {
-        const firstOption = await page.$('.next-select-dropdown-menu-item');
-        if (firstOption) {
-          await firstOption.click();
-          const selectedText = await firstOption.textContent();
-          ctx.logger.warn(`⚠️ 已选择: ${selectedText}`);
-          brandSelected = true;
-        }
-      } catch (error) {
-        ctx.logger.error(`选择第一个选项失败: ${error.message}`);
+    // 步骤3：验证品牌是否已填入
+    ctx.logger.info('\n[步骤3] 验证品牌输入');
+
+    try {
+      // 方法1：检查输入框的值
+      const inputValue = await brandInput.inputValue();
+      if (inputValue === brand) {
+        ctx.logger.success(`✅ 品牌输入成功（输入框值）: ${inputValue}`);
+      } else if (inputValue) {
+        ctx.logger.warn(`⚠️  输入框值与目标品牌不完全一致: "${inputValue}" vs "${brand}"`);
       }
+
+      // 方法2：检查已选择的品牌标签
+      const selectedBrand = await page.$('#sell-field-brand .next-select-selection-item');
+      if (selectedBrand) {
+        const text = await selectedBrand.textContent();
+        ctx.logger.success(`✅ 品牌标签显示: ${text}`);
+      }
+    } catch (e) {
+      ctx.logger.warn(`验证品牌时出错: ${e.message}`);
     }
+  }
 
-    if (!brandSelected) {
-      // 按ESC关闭下拉框
-      await page.keyboard.press('Escape');
-      throw new Error('未找到匹配的品牌，请手动选择或更新品牌信息');
-    }
-
-    // 步骤5：验证选择结果
-    ctx.logger.info('\n[步骤5] 验证品牌选择结果');
-    await page.waitForTimeout(1000);
-
-    // 检查下拉框的值
-    const selectedValue = await page.$eval('#sell-field-brand .next-select-selection-item',
-      el => el ? el.textContent.trim() : '');
-
-    if (selectedValue) {
-      ctx.logger.success(`✅ 品牌已选择: ${selectedValue}`);
-
-      // 更新缓存
-      taskCache.selectedBrand = {
-        original: brand,
-        actual: selectedValue,
-        matched: selectedValue.toLowerCase().includes(brand.toLowerCase()),
-        timestamp: new Date().toISOString()
-      };
-
-      saveTaskCache(ctx.productId, taskCache);
-    } else {
-      ctx.logger.warn('无法验证品牌选择结果');
-    }
-
-    // 步骤6：截图保存
-    const screenshotDir = process.env.TAOBAO_SCREENSHOT_DIR ||
-      path.resolve(process.cwd(), 'screenshots');
-
-    if (!fs.existsSync(screenshotDir)) {
+  /**
+   * 截图保存
+   */
+  async takeScreenshot(page, productId, screenshotDir, ctx) {
+    try {
       fs.mkdirSync(screenshotDir, { recursive: true });
+      const screenshotPath = path.join(screenshotDir, `${productId}_step6_brand_selected.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: false });
+      ctx.logger.success(`截图已保存: ${screenshotPath}`);
+      return screenshotPath;
+    } catch (error) {
+      ctx.logger.warn(`截图保存失败: ${error.message}`);
+      return null;
     }
+  }
+}
 
-    const screenshotPath = path.join(
-      screenshotDir,
-      `${ctx.productId}_step6_brand.png`
-    );
+/**
+ * Step6主函数：选择品牌
+ */
+const step6 = async (ctx) => {
+  const { productId, config, logger } = ctx;
 
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    ctx.logger.info(`截图已保存: ${screenshotPath}`);
+  logger.info('开始选择商品品牌');
 
-    // 更新步骤状态
-    taskCache.stepStatus[6] = 'done';
-    saveTaskCache(ctx.productId, taskCache);
-    updateStepStatus(ctx.productId, 6, 'done');
+  // 检查是否有页面引用
+  if (!ctx.page1) {
+    throw new Error('未找到发布页面，请先执行步骤4');
+  }
 
-    ctx.logger.success('\n=== 品牌选择完成 ===');
+  const page = ctx.page1;
+
+  // 从缓存加载商品数据
+  const taskCache = loadTaskCache(productId);
+  if (!taskCache || !taskCache.productData) {
+    throw new Error('未找到商品数据缓存，请先执行步骤0（任务初始化）');
+  }
+
+  const { productData } = taskCache;
+  const brand = productData.brand;
+
+  if (!brand) {
+    throw new Error('商品数据中缺少品牌信息（productData.brand）');
+  }
+
+  logger.info(`商品品牌: ${brand}`);
+
+  // 创建品牌选择器实例
+  const brandSelector = new BrandSelector();
+
+  try {
+    // 选择品牌
+    await brandSelector.selectBrand(page, brand, ctx);
+
+    // 保存截图
+    const screenshotDir = (config && config.screenshotDir) || './screenshots';
+    await brandSelector.takeScreenshot(page, productId, screenshotDir, ctx);
+
+    // 保存选择的品牌到缓存
+    taskCache.selectedBrand = brand;
+    saveTaskCache(productId, taskCache);
+    logger.success('品牌信息已保存到缓存');
 
   } catch (error) {
-    ctx.logger.error(`品牌选择失败: ${error.message}`);
-
-    // 更新飞书错误日志
-    if (ctx.feishuRecordId) {
-      try {
-        await feishuClient.updateRecord(ctx.feishuRecordId, {
-          [process.env.FEISHU_ERROR_LOG_FIELD || 'error_log']: `步骤6失败: ${error.message}`
-        });
-      } catch (updateError) {
-        ctx.logger.error(`更新飞书错误日志失败: ${updateError.message}`);
-      }
-    }
+    logger.error(`品牌选择失败: ${error.message}`);
 
     // 保存错误截图
-    if (ctx.page1) {
-      try {
-        const errorScreenshot = path.join(
-          path.resolve(process.cwd(), 'screenshots'),
-          `${ctx.productId}_step6_error.png`
-        );
-        await ctx.page1.screenshot({ path: errorScreenshot, fullPage: true });
-        ctx.logger.info(`错误截图: ${errorScreenshot}`);
-      } catch (e) {
-        // 忽略截图错误
-      }
+    try {
+      const screenshotDir = (config && config.screenshotDir) || './screenshots';
+      fs.mkdirSync(screenshotDir, { recursive: true });
+      const errorScreenshotPath = path.join(screenshotDir, `${productId}_step6_error.png`);
+      await page.screenshot({ path: errorScreenshotPath, fullPage: true });
+      logger.info(`错误截图: ${errorScreenshotPath}`);
+    } catch (screenshotError) {
+      // 忽略截图错误
     }
 
-    updateStepStatus(ctx.productId, 6, 'failed');
     throw error;
-
-  } finally {
-    clearInterval(heartbeat);
-    process.stdout.write('\n');
   }
-};
+
+  logger.info('商品品牌选择完成');
+}
 
 module.exports = { step6 };
