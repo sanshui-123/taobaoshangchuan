@@ -39,22 +39,25 @@ program
   .option('-b, --batch <ids>', '批量处理商品ID（用逗号分隔，例如：C25217104,C25216104）')
   .option('-s, --step <number>', '指定要执行的步骤（可多次使用）', (value, previous = []) => {
     const stepId = parseInt(value);
-    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
-      throw new Error(`无效的步骤ID: ${value}`);
+    const maxStep = stepNames.length - 1;
+    if (isNaN(stepId) || stepId < 0 || stepId > maxStep) {
+      throw new Error(`无效的步骤ID: ${value}（有效范围: 0-${maxStep}）`);
     }
     return previous ? [...previous, stepId] : [stepId];
   })
   .option('--from <number>', '起始步骤（包含）', (value) => {
     const stepId = parseInt(value);
-    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
-      throw new Error(`无效的起始步骤: ${value}`);
+    const maxStep = stepNames.length - 1;
+    if (isNaN(stepId) || stepId < 0 || stepId > maxStep) {
+      throw new Error(`无效的起始步骤: ${value}（有效范围: 0-${maxStep}）`);
     }
     return stepId;
   })
   .option('--to <number>', '结束步骤（包含）', (value) => {
     const stepId = parseInt(value);
-    if (isNaN(stepId) || stepId < 0 || stepId > 14) {
-      throw new Error(`无效的结束步骤: ${value}`);
+    const maxStep = stepNames.length - 1;
+    if (isNaN(stepId) || stepId < 0 || stepId > maxStep) {
+      throw new Error(`无效的结束步骤: ${value}（有效范围: 0-${maxStep}）`);
     }
     return stepId;
   })
