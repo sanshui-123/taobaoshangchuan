@@ -64,6 +64,7 @@ exports.FEISHU_CONFIG = {
 exports.TAOBAO_CONFIG = {
   BASE_URL: process.env.TAOBAO_BASE_URL || 'https://login.taobao.com',
   PUBLISH_URL: process.env.TAOBAO_PUBLISH_URL || 'https://sell.taobao.com/publish/similar',
+  TEMPLATE_ITEM_ID: process.env.TEMPLATE_ITEM_ID || '',  // 模板商品ID，用于直达链接
   STORAGE_STATE_PATH: process.env.TAOBAO_STORAGE_STATE_PATH || path.resolve(process.cwd(), 'storage/storageState.json'),
   ASSETS_DIR: process.env.TAOBAO_ASSETS_DIR || path.resolve(process.cwd(), 'assets'),
   SCREENSHOT_DIR: process.env.TAOBAO_SCREENSHOT_DIR || path.resolve(process.cwd(), 'screenshots'),
