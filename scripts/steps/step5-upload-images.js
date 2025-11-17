@@ -917,16 +917,13 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
 
     try {
       // 检查该索引是否有元素
-      const baseLocator = uploadFrame.locator('.PicList_pic_background__pGTdV').nth(targetIndex);
-      const count = await baseLocator.count();
+      const card = uploadFrame.locator('.PicList_pic_background__pGTdV').nth(targetIndex);
+      const count = await card.count();
 
       if (count === 0) {
         ctx.logger.warn(`  ⚠️  索引${targetIndex}没有元素，跳过`);
         continue;
       }
-
-      // 找到父容器 PicList_picItem（使用 xpath 定位祖先元素）
-      const card = baseLocator.locator('xpath=ancestor::div[contains(@class,"PicList_picItem")]').first();
 
       // 滚动到视图中
       await card.scrollIntoViewIfNeeded({ timeout: 3000 });
@@ -937,7 +934,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
       // 等待动画稳定
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // 点击父容器
+      // 直接点击图片卡片
       await card.click({ timeout: 3000 });
 
       selectedCount++;
