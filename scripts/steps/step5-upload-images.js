@@ -569,68 +569,16 @@ const step5 = async (ctx) => {
       const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, ctx);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // 步骤7：等待弹窗自动关闭
-      ctx.logger.info('\n[步骤7] 等待弹窗自动关闭');
-      ctx.logger.info('  💡 素材库在选满图片后会自动关闭弹窗，无需手动点击确定按钮');
-
-      // 等待弹窗自动关闭
-      await page.waitForTimeout(2000);
-
-      // 关闭弹窗后再次滚动到顶部，确保页面不会跳回底部
-      await scrollToTop();
-      await page.waitForTimeout(500);
-      ctx.logger.info('📍 弹窗关闭后保持页面在顶部');
-
-      // 步骤8：检查上传结果
-      ctx.logger.info('\n[步骤8] 验证上传结果');
-
-      // 切换回主frame检查上传的图片
-      const uploadedImages = await page.locator('.material-image-item').count();
-      ctx.logger.success(`✅ 成功上传 ${uploadedImages} 张图片到素材库`);
-
-      // 统计成功率
-      const successRate = (uploadedImages / Math.min(imageCount, 6) * 100).toFixed(1);
-      ctx.logger.info(`上传成功率: ${successRate}%`);
-
-      // 步骤9：保存截图
-      const screenshotDir = process.env.TAOBAO_SCREENSHOT_DIR ||
-        path.resolve(process.cwd(), 'screenshots');
-
-      if (!fs.existsSync(screenshotDir)) {
-        fs.mkdirSync(screenshotDir, { recursive: true });
-      }
-
-      const screenshotPath = path.join(
-        screenshotDir,
-        `${productId}_step5_uploaded.png`
-      );
-
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      ctx.logger.info(`截图已保存: ${screenshotPath}`);
-
-      // 更新缓存
-      taskCache.uploadResults = {
-        strategy: strategy.name,
-        totalImages: imageCount,
-        selectedImages: selectedCount,
-        uploadedImages: uploadedImages,
-        successRate: parseFloat(successRate),
-        colorCount: colorCount,
-        timestamp: new Date().toISOString()
-      };
-
+      // 直接标记为完成，不再等待弹窗关闭或验证上传结果
       taskCache.stepStatus[5] = 'done';
       saveTaskCache(productId, taskCache);
-
       updateStepStatus(productId, 5, 'done');
 
       // 输出总结
-      ctx.logger.success('\n=== 主图上传完成 ===');
+      ctx.logger.success('\n=== 主图选择完成 ===');
       ctx.logger.info(`策略: ${strategy.name}`);
-      ctx.logger.info(`原始图片数: ${imageCount}`);
-      ctx.logger.info(`选择图片数: ${selectedCount}`);
-      ctx.logger.info(`成功上传: ${uploadedImages}`);
-      ctx.logger.info(`成功率: ${successRate}%`);
+      ctx.logger.info(`总图片数: ${imageCount}`);
+      ctx.logger.info(`已选择: ${selectedCount} 张`);
 
     } catch (error) {
       ctx.logger.error(`上传失败: ${error.message}`);
