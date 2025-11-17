@@ -147,8 +147,7 @@ async function runSteps(options) {
     14: taskCache.stepStatus[14] || 'pending'
   };
 
-  // 确定要执行的步骤
-  let stepsToRun = [];
+  // 确定要执行的步骤（已在前面声明）
   if (options.step && options.step.length > 0) {
     // 指定了特定步骤
     stepsToRun = options.step;
