@@ -257,13 +257,15 @@ const step5 = async (ctx) => {
     // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
     ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
 
+    // 声明工作定位器（需要在try外部声明，以便后续步骤使用）
+    let workingLocator;  // 工作的定位器（iframe或page）
+
     // 方案A：优先使用搜索框（根据实际弹窗结构）
     try {
       // 智能检测：弹窗可能在iframe中，也可能在普通弹窗中
       ctx.logger.info('  🔍 检测弹窗类型...');
 
       let searchInput;
-      let workingLocator;  // 工作的定位器（iframe或page）
 
       // 方式1：遍历 iframe 查找搜索框（素材库弹窗通常位于 iframe 内）
       const iframeCount = await page.locator('iframe').count();
@@ -380,9 +382,39 @@ const step5 = async (ctx) => {
 
       ctx.logger.success(`✅ 已通过搜索选择文件夹: ${productId}`);
 
-      // 等待文件夹内容加载（增加等待时间）
+      // 等待文件夹内容加载（关键：必须等待图片卡片出现）
       ctx.logger.info('  ⏳ 等待文件夹内容加载...');
-      await page.waitForTimeout(3000);  // 增加到3秒
+
+      // 主动等待图片卡片容器出现（不是等固定时间）
+      let imagesLoaded = false;
+      const imageCardSelectors = [
+        '.PicList_pic_background__pGTdV',     // 主选择器
+        '[class*="PicList_pic"]',             // 备选
+        'div[class*="pic"]:has(img)'          // 兜底
+      ];
+
+      // 最多等待10秒，每0.5秒检查一次
+      for (let i = 0; i < 20; i++) {
+        await page.waitForTimeout(500);
+
+        for (const selector of imageCardSelectors) {
+          const count = await workingLocator.locator(selector).count();
+          if (count > 0) {
+            ctx.logger.success(`  ✅ 文件夹内容已加载（${count}个图片卡片，${(i + 1) * 0.5}秒）`);
+            imagesLoaded = true;
+            break;
+          }
+        }
+
+        if (imagesLoaded) break;
+      }
+
+      if (!imagesLoaded) {
+        ctx.logger.warn('  ⚠️  图片卡片未在10秒内加载，继续执行...');
+      }
+
+      // 额外等待500ms确保动画完成
+      await page.waitForTimeout(500);
 
       // 调试截图：查看文件夹打开后的状态
       const debugScreenshotFolder = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_folder_opened.png';
@@ -474,18 +506,12 @@ const step5 = async (ctx) => {
       }
     }
 
-    // 获取工作定位器（用于后续操作图片列表）
+    // 复用搜索时的工作定位器（关键：必须使用同一个iframe上下文！）
     ctx.logger.info('\n[步骤5] 准备选择图片');
-    let uploadLocator;
-    const iframeCount = await page.locator('iframe').count();
-
-    if (iframeCount > 0) {
-      uploadLocator = page.frameLocator('iframe').first();
-      ctx.logger.info('  使用 iframe 定位器操作图片列表');
-    } else {
-      uploadLocator = page;
-      ctx.logger.info('  使用主页面定位器操作图片列表');
-    }
+    // workingLocator 是在搜索文件夹时已经确定的正确iframe定位器
+    // 直接复用它，不要重新创建，避免定位到错误的iframe
+    const uploadLocator = workingLocator;
+    ctx.logger.info('  ✅ 复用搜索时的定位器（确保在同一iframe上下文）');
 
     try {
       // 设置排序方式为文件名升序（可选，根据需要）
@@ -503,53 +529,111 @@ const step5 = async (ctx) => {
       // 步骤6：检查并选择图片
       ctx.logger.info('\n[步骤6] 选择图片');
 
-      // 尝试多种图片选择器（素材库图片可能有不同的class）
-      // 注意：选择器需要足够具体，避免匹配到root或过大的容器
-      const imageSelectors = [
-        '.PicList_pic_background__pGTdV',                // 原选择器
-        '[class*="PicList_pic"]:not([id="root"])',      // 包含 PicList_pic 的元素（排除root）
-        '[class*="pic-item"]',                           // 图片项
-        '[class*="image-item"]',                         // 图片项
-        'a:has(> img[src*="alicdn"])',                   // 直接子元素是图片的链接
-        'div[class*="item"]:has(> img[src*="alicdn"])',  // class包含item且直接子元素是图片的div
-        'div[class]:has(> img[src*="alicdn"]):not([id])',  // 有class无id且直接子元素是图片的div
-        'a:has(img)',                                    // 包含图片的链接
-        'div[class*="pic"]:not(#root):has(img)',         // 包含图片的图片容器（排除root）
-        'li:has(img[src*="alicdn"])',                    // 包含图片的列表项
-        '[class*="card"]:has(img)',                      // 卡片容器
-        '.pic-wrapper',                                  // 图片包装器
-        '[data-role="pic-item"]'                         // 数据属性
+      // 图片卡片容器选择器（优先级排序，基于实际DOM调试结果）
+      // 重要：点击的是包含图片的卡片容器，而不是<img>元素本身
+      const imageCardSelectors = [
+        '.PicList_pic_background__pGTdV',               // ✅ 主选择器（调试确认）
+        '.PicList_pic_imgBox__c0HXw',                   // 图片包装盒
+        '[class*="PicList_pic_background"]',            // PicList背景容器（模糊匹配）
+        '[class*="PicList_pic"]:not([id])',             // PicList相关元素（排除有id的）
+        'div[class*="pic"][class*="background"]',       // 包含pic和background的div
+        'div[class*="picItem"]',                        // 图片项容器
+        'div[class*="pic-item"]',                       // 图片项（短横线形式）
+        'label:has(img[src*="alicdn"])',                // label包装的图片
+        'button:has(img[src*="alicdn"])',               // button包装的图片
+        'div[role="button"]:has(img)',                  // 角色为button的div
+        'a:has(img[src*="alicdn"])',                    // 链接包装的图片
+        '[data-role="pic-item"]'                        // 数据属性标记的图片项
       ];
 
       let imageCount = 0;
-      let imageSelector = null;
+      let imageCardSelector = null;
 
-      ctx.logger.info('  🔍 尝试查找图片...');
-      for (const selector of imageSelectors) {
+      ctx.logger.info('  🔍 尝试查找图片卡片容器...');
+      for (const selector of imageCardSelectors) {
         const count = await uploadLocator.locator(selector).count();
         ctx.logger.info(`    尝试 "${selector}": ${count} 个`);
         if (count > 0) {
           imageCount = count;
-          imageSelector = selector;
-          ctx.logger.success(`  ✅ 使用选择器 "${selector}" 找到 ${count} 张图片`);
+          imageCardSelector = selector;
+          ctx.logger.success(`  ✅ 使用选择器 "${selector}" 找到 ${count} 个图片卡片`);
           break;
         }
       }
 
       if (imageCount === 0) {
-        throw new Error('文件夹中没有找到图片（已尝试多个选择器）');
+        throw new Error('文件夹中没有找到图片卡片容器（已尝试多个选择器）');
       }
 
-      // 根据策略选择图片
-      const selectedCount = await selectImages(uploadLocator, imageCount, strategy, ctx, imageSelector);
+      // 根据策略选择图片（传递卡片容器选择器）
+      const selectedCount = await selectImages(uploadLocator, imageCount, strategy, ctx, imageCardSelector);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
       // 步骤7：确认上传
       ctx.logger.info('\n[步骤7] 确认上传');
-      const confirmButton = uploadLocator.locator(`.next-btn-primary:has-text("确定(${selectedCount})")`);
-      await confirmButton.click();
-      ctx.logger.success('✅ 点击确定按钮');
-      await page.waitForTimeout(3000);
+
+      // 尝试多种确定按钮选择器（在iframe中和主页面中都尝试）
+      const confirmButtonSelectors = [
+        `.next-btn-primary:has-text("确定(${selectedCount})")`,  // 带数字的确定按钮
+        `.next-btn-primary:has-text("确定")`,                     // 不带数字的确定按钮
+        `button:has-text("确定(${selectedCount})")`,             // button标签
+        `button:has-text("确定")`,                                // button标签（不带数字）
+        `.next-btn-primary`,                                      // 主按钮（通常是确定）
+        `[class*="btn"][class*="primary"]:has-text("确定")`,     // 通用主按钮
+        `button.next-btn-primary`,                                // Next UI 主按钮
+        `[class*="Footer"] button:has-text("确定")`,             // Footer中的确定按钮
+        `.next-dialog-footer button:has-text("确定")`            // 对话框底部的确定按钮
+      ];
+
+      let buttonClicked = false;
+
+      // 先在iframe中查找
+      ctx.logger.info('  🔍 在iframe中查找确定按钮...');
+      for (const selector of confirmButtonSelectors) {
+        try {
+          const button = uploadLocator.locator(selector).first();
+          const count = await button.count();
+          ctx.logger.info(`    尝试 "${selector}": ${count} 个`);
+          if (count > 0) {
+            await button.waitFor({ state: 'visible', timeout: 5000 });
+            await button.click({ timeout: 5000 });
+            ctx.logger.success(`  ✅ 点击确定按钮（选择器: ${selector}）`);
+            buttonClicked = true;
+            break;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      // 如果iframe中没找到，尝试在主页面中查找
+      if (!buttonClicked) {
+        ctx.logger.warn('  iframe中未找到，尝试在主页面查找...');
+        for (const selector of confirmButtonSelectors) {
+          try {
+            const button = page.locator(selector).first();
+            const count = await button.count();
+            ctx.logger.info(`    主页面尝试 "${selector}": ${count} 个`);
+            if (count > 0) {
+              await button.waitFor({ state: 'visible', timeout: 5000 });
+              await button.click({ timeout: 5000 });
+              ctx.logger.success(`  ✅ 在主页面点击确定按钮（选择器: ${selector}）`);
+              buttonClicked = true;
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+
+      if (!buttonClicked) {
+        ctx.logger.warn('  ⚠️  未找到确定按钮，可能弹窗已自动关闭');
+        ctx.logger.info('  💡 等待弹窗自动关闭并验证上传结果...');
+      }
+
+      // 等待弹窗关闭（无论是点击确定还是自动关闭）
+      await page.waitForTimeout(2000);
 
       // 关闭弹窗后再次滚动到顶部，确保页面不会跳回底部
       await scrollToTop();
@@ -674,21 +758,53 @@ function determineUploadStrategy(colorCount) {
 }
 
 /**
- * 选择图片
+ * 增强的图片卡片点击函数
+ * @param {Locator} cardLocator - 图片卡片定位器
+ * @param {number} index - 索引（用于日志）
+ * @param {object} ctx - 上下文
  */
-async function selectImages(uploadFrame, imageCount, strategy, ctx, imageSelector) {
+async function clickImageCard(cardLocator, index, ctx) {
+  try {
+    // 1. 滚动到视图中
+    await cardLocator.scrollIntoViewIfNeeded({ timeout: 3000 });
+
+    // 2. 等待可见并稳定
+    await cardLocator.waitFor({ state: 'visible', timeout: 3000 });
+
+    // 3. 等待300ms让动画完成
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 4. 点击
+    await cardLocator.click({ timeout: 3000 });
+
+    ctx.logger.info(`    ✓ 已选择第 ${index + 1} 张图片`);
+    return true;
+  } catch (error) {
+    ctx.logger.warn(`    ✗ 选择第 ${index + 1} 张图片失败: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 选择图片（点击图片卡片容器）
+ */
+async function selectImages(uploadFrame, imageCount, strategy, ctx, imageCardSelector) {
   let selectedCount = 0;
 
-  // 使用传入的选择器，如果未传入则使用默认值
-  const selector = imageSelector || '.PicList_pic_background__pGTdV';
+  // 使用传入的卡片容器选择器，如果未传入则使用默认值
+  const selector = imageCardSelector || '.PicList_pic_background__pGTdV';
+
+  ctx.logger.info(`  📋 开始选择图片，策略: ${strategy.name}`);
 
   switch (strategy.name) {
     case '单色策略':
       // 单色：选择前6张
-      selectedCount = Math.min(imageCount, 6);
-      for (let i = 0; i < selectedCount; i++) {
-        await uploadFrame.locator(selector).nth(i).click();
-        await uploadFrame.waitForTimeout(200);
+      const singleColorCount = Math.min(imageCount, 6);
+      for (let i = 0; i < singleColorCount; i++) {
+        const cardLocator = uploadFrame.locator(selector).nth(i);
+        const success = await clickImageCard(cardLocator, i, ctx);
+        if (success) selectedCount++;
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       break;
 
@@ -697,25 +813,29 @@ async function selectImages(uploadFrame, imageCount, strategy, ctx, imageSelecto
       // 先找带商品ID的图片
       const hasProductId = await uploadFrame.locator(`${selector}:has-text("${ctx.productId}")`).count();
       if (hasProductId > 0) {
-        await uploadFrame.locator(`${selector}:has-text("${ctx.productId}")`).first().click();
-        selectedCount++;
+        const cardLocator = uploadFrame.locator(`${selector}:has-text("${ctx.productId}")`).first();
+        const success = await clickImageCard(cardLocator, 0, ctx);
+        if (success) selectedCount++;
       }
 
       // 再从颜色2选择2张
       const remaining = Math.min(imageCount - selectedCount, 2);
       for (let i = selectedCount; i < selectedCount + remaining && i < imageCount; i++) {
-        await uploadFrame.locator(selector).nth(i).click();
-        await uploadFrame.waitForTimeout(200);
+        const cardLocator = uploadFrame.locator(selector).nth(i);
+        const success = await clickImageCard(cardLocator, i, ctx);
+        if (success) selectedCount++;
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
-      selectedCount += remaining;
       break;
 
     default:
-      // 多色：每个颜色选1张
-      selectedCount = Math.min(imageCount, 6);
-      for (let i = 0; i < selectedCount; i++) {
-        await uploadFrame.locator(selector).nth(i).click();
-        await uploadFrame.waitForTimeout(200);
+      // 多色：每个颜色选1张（最多5张，避免第6张滚动问题）
+      const multiColorCount = Math.min(imageCount, 5);
+      for (let i = 0; i < multiColorCount; i++) {
+        const cardLocator = uploadFrame.locator(selector).nth(i);
+        const success = await clickImageCard(cardLocator, i, ctx);
+        if (success) selectedCount++;
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
   }
 
