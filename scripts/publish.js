@@ -8,21 +8,22 @@ const { uploadImages } = require('./tools/upload-material-folder');
 
 // 步骤名称映射
 const stepNames = [
-  '任务初始化',
-  '下载图片',
-  '翻译内容',
-  '登录验证',
-  '打开发布页',
-  '上传主图',
-  '选择品牌',
-  '填写货号性别',
-  '填写颜色',
-  '填写尺码',
-  '填写价格库存',
-  '裁剪图片',
-  '填写详情',
-  '提交商品',
-  '日志通知'
+  '任务初始化',    // 0
+  '下载图片',      // 1
+  '翻译内容',      // 2
+  '登录验证',      // 3
+  '打开发布页',    // 4
+  '上传主图',      // 5
+  '标题分类',      // 6 - 新增
+  '选择品牌',      // 7
+  '填写货号性别',  // 8
+  '填写颜色',      // 9
+  '填写尺码',      // 10
+  '填写价格库存',  // 11
+  '裁剪图片',      // 12
+  '填写详情',      // 13
+  '提交商品',      // 14
+  '日志通知'       // 15
 ];
 
 function getStepName(stepId) {
@@ -73,7 +74,7 @@ async function runSteps(options) {
       stepsToRun.push(i);
     }
   } else {
-    for (let i = 0; i <= 14; i++) {
+    for (let i = 0; i <= 15; i++) {
       stepsToRun.push(i);
     }
   }
@@ -144,7 +145,8 @@ async function runSteps(options) {
     11: taskCache.stepStatus[11] || 'pending',
     12: taskCache.stepStatus[12] || 'pending',
     13: taskCache.stepStatus[13] || 'pending',
-    14: taskCache.stepStatus[14] || 'pending'
+    14: taskCache.stepStatus[14] || 'pending',
+    15: taskCache.stepStatus[15] || 'pending'
   };
 
   // 确定要执行的步骤（已在前面声明）
@@ -158,7 +160,7 @@ async function runSteps(options) {
     }
   } else {
     // 执行所有步骤
-    for (let i = 0; i <= 14; i++) {
+    for (let i = 0; i <= 15; i++) {
       stepsToRun.push(i);
     }
   }
