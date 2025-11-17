@@ -149,22 +149,6 @@ async function runSteps(options) {
     15: taskCache.stepStatus[15] || 'pending'
   };
 
-  // 确定要执行的步骤（已在前面声明）
-  if (options.step && options.step.length > 0) {
-    // 指定了特定步骤
-    stepsToRun = options.step;
-  } else if (options.from !== undefined && options.to !== undefined) {
-    // 指定了范围
-    for (let i = options.from; i <= options.to; i++) {
-      stepsToRun.push(i);
-    }
-  } else {
-    // 执行所有步骤
-    for (let i = 0; i <= 15; i++) {
-      stepsToRun.push(i);
-    }
-  }
-
   console.log(`\n📋 将执行步骤: ${stepsToRun.join(', ')}`);
 
   // 试运行模式
