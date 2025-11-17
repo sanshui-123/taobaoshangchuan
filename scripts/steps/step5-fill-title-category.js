@@ -251,25 +251,9 @@ async function runStandalone() {
 
     // 2. 获取浏览器页面
     logger.info('\n[2/3] 连接浏览器页面');
-    const browser = browserManager.getBrowser();
 
-    if (!browser) {
-      throw new Error('浏览器未启动，请先执行 Step1-3 登录淘宝');
-    }
-
-    const contexts = browser.contexts();
-    if (contexts.length === 0) {
-      throw new Error('浏览器上下文不存在，请先执行 Step1-3');
-    }
-
-    const context = contexts[0];
-    const pages = context.pages();
-
-    if (pages.length === 0) {
-      throw new Error('没有可用页面，请先打开淘宝发布页面');
-    }
-
-    const page = pages[0];
+    // 使用 browser-manager 提供的接口获取页面
+    const page = await browserManager.getMainPage();
     logger.info(`  当前页面: ${page.url()}`);
 
     // 3. 执行填写操作
