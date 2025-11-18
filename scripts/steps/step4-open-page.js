@@ -426,35 +426,74 @@ async function processColors(page, targetColors, logger) {
   // 填写颜色值
   logger.info('  填写颜色值:');
 
-  // 获取所有颜色输入框 - 使用更宽松的选择器
-  const colorInputs = colorContainer.locator('input[type="text"], input[role="textbox"]').filter({
-    has: page.locator('xpath=./parent::*[not(contains(@class, "备注"))]')
-  });
+  // 获取所有颜色项容器（重新获取，因为可能有删除操作）
+  const colorItemsForFill = colorContainer.locator('.sell-color-item-wrap');
+  const itemCount = await colorItemsForFill.count();
+  logger.info(`  找到 ${itemCount} 个颜色项`);
 
-  // 如果上面选择器不工作，使用备选
-  let inputCount = await colorInputs.count().catch(() => 0);
-  let inputs = colorInputs;
-
-  if (inputCount < targetColors.length) {
-    // 备选：直接获取所有 text input
-    inputs = colorContainer.locator('input[type="text"]');
-    inputCount = await inputs.count().catch(() => 0);
-    logger.info(`  找到 ${inputCount} 个输入框`);
-  }
-
-  for (let i = 0; i < Math.min(targetColors.length, inputCount); i++) {
+  for (let i = 0; i < Math.min(targetColors.length, itemCount); i++) {
     const color = targetColors[i];
-    const input = inputs.nth(i);
+    const colorItem = colorItemsForFill.nth(i);
 
     try {
-      // 清空并填入新值
-      await input.click();
-      await page.waitForTimeout(200);
-      await input.fill('');
-      await input.fill(color);
-      await page.waitForTimeout(300);
+      // 方法1：找到颜色项内的第一个输入框（颜色名称输入框，不是备注）
+      // 颜色输入框通常没有 placeholder 或 placeholder 不含"备注"
+      let input = colorItem.locator('input').first();
+      let inputExists = await input.count();
 
-      logger.info(`    第 ${i + 1} 个: ${color}`);
+      if (inputExists > 0) {
+        // 检查是否是备注输入框，如果是则取下一个
+        const placeholder = await input.getAttribute('placeholder').catch(() => '');
+        if (placeholder && placeholder.includes('备注')) {
+          // 这是备注框，找另一个
+          const allInputs = colorItem.locator('input');
+          const allCount = await allInputs.count();
+          for (let j = 0; j < allCount; j++) {
+            const testInput = allInputs.nth(j);
+            const testPlaceholder = await testInput.getAttribute('placeholder').catch(() => '');
+            if (!testPlaceholder || !testPlaceholder.includes('备注')) {
+              input = testInput;
+              break;
+            }
+          }
+        }
+
+        // 清空并填入新值
+        await input.click();
+        await page.waitForTimeout(200);
+
+        // 使用 triple click 选中全部文本，然后输入新值
+        await input.click({ clickCount: 3 });
+        await page.waitForTimeout(100);
+        await input.fill(color);
+        await page.waitForTimeout(300);
+
+        logger.info(`    第 ${i + 1} 个: ${color}`);
+      } else {
+        // 方法2：通过 JavaScript 直接设置值
+        const filled = await page.evaluate(({ idx, colorValue }) => {
+          const items = document.querySelectorAll('.sell-color-item-wrap');
+          if (items[idx]) {
+            const inputs = items[idx].querySelectorAll('input');
+            for (const input of inputs) {
+              const placeholder = input.placeholder || '';
+              if (!placeholder.includes('备注')) {
+                input.value = colorValue;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              }
+            }
+          }
+          return false;
+        }, { idx: i, colorValue: color });
+
+        if (filled) {
+          logger.info(`    第 ${i + 1} 个: ${color} (via JS)`);
+        } else {
+          logger.info(`    第 ${i + 1} 个填写失败: 未找到输入框`);
+        }
+      }
     } catch (e) {
       logger.info(`    第 ${i + 1} 个填写失败: ${e.message}`);
     }
