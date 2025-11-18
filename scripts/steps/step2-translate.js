@@ -278,6 +278,15 @@ function translateText(text, sourceLang, targetLang, taskType = 'translate') {
  */
 function splitIntoSegments(text, maxLength = 800) {
   const segments = [];
+
+  // 确保 text 是字符串类型
+  if (typeof text !== 'string') {
+    if (text === null || text === undefined) {
+      return [];
+    }
+    text = String(text);
+  }
+
   const paragraphs = text.split('\n');
   let currentSegment = '';
 
