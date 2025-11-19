@@ -106,27 +106,43 @@ const step11Detail = async (ctx) => {
     // 在编辑弹窗中找到可编辑区域
     const editableArea = page.locator('.next-dialog-body [contenteditable="true"]').first();
 
-    // 使用 Ctrl+F 查找文本，或者用键盘导航
     // 先点击编辑区域获取焦点
     await editableArea.click();
     await page.waitForTimeout(300);
 
-    // 使用 Ctrl+End 移动到文档末尾，然后向上查找
-    await page.keyboard.press('Control+End');
-    await page.waitForTimeout(200);
-
-    // 查找包含"注：SS=XS"的段落并点击
+    // 查找包含完整文字的段落，使用精确匹配避免截断
     try {
-      const sizeNoteParagraph = page.locator('.next-dialog-body p:has-text("注：SS=XS")').first();
+      // 使用完整文本进行精确定位
+      const fullText = '注：SS=XS，LL=XL，3L=XXL，4L=XXXL';
+      const sizeNoteParagraph = page.getByLabel('编辑模块').getByText(fullText, { exact: true });
+
       if (await sizeNoteParagraph.isVisible({ timeout: 2000 })) {
+        // 先悬停在文字上
+        await sizeNoteParagraph.hover();
+        await page.waitForTimeout(100);
+
+        // 点击文字（会将光标放在某处）
         await sizeNoteParagraph.click();
-        await page.waitForTimeout(200);
-        // 移动到行末
+        await page.waitForTimeout(100);
+
+        // 按End键移动到行末
         await page.keyboard.press('End');
-        ctx.logger.info('  ✅ 已定位到尺码注释行');
+        await page.waitForTimeout(100);
+
+        // 再按右箭头确保在最末尾
+        await page.keyboard.press('ArrowRight');
+        await page.waitForTimeout(100);
+
+        ctx.logger.info('  ✅ 已定位到尺码注释行最末尾');
+      } else {
+        // 备用方案：使用Ctrl+End定位到文档末尾
+        await page.keyboard.press('Control+End');
+        ctx.logger.info('  ℹ️ 未找到尺码注释行，使用文档末尾位置');
       }
     } catch (e) {
-      ctx.logger.info('  ℹ️ 未找到尺码注释行，使用文档末尾位置');
+      // 如果精确匹配失败，使用Ctrl+End定位到文档末尾
+      await page.keyboard.press('Control+End');
+      ctx.logger.info('  ℹ️ 定位失败，使用文档末尾位置');
     }
 
     // 按回车创建新行
@@ -136,11 +152,17 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤4：插入详情页文字 ====================
     ctx.logger.info('\n[步骤4] 插入详情页文字');
 
-    const detailText = productData.detailText || '';
+    // 从飞书数据中获取详情文案（可能是数组）
+    const detailText = Array.isArray(productData.detailCN)
+      ? productData.detailCN.join('\n')
+      : (productData.detailCN || productData.detailText || '');
+
     if (detailText) {
       // 使用 insertText 插入文字
       await page.keyboard.insertText(detailText);
       await page.waitForTimeout(300);
+      // 插入后换两行，与尺码表分隔
+      await page.keyboard.press('Enter');
       await page.keyboard.press('Enter');
       ctx.logger.info(`  ✅ 已插入详情页文字 (${detailText.length} 字符)`);
     } else {
@@ -150,10 +172,14 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤5：插入尺码表 ====================
     ctx.logger.info('\n[步骤5] 插入尺码表');
 
-    const sizeTable = productData.sizeTable || '';
+    // 从飞书数据中获取尺码表
+    const sizeTable = productData.sizeTable || productData.sizeTableText || '';
+
     if (sizeTable) {
       await page.keyboard.insertText(sizeTable);
       await page.waitForTimeout(300);
+      // 插入后换两行，与图片分隔
+      await page.keyboard.press('Enter');
       await page.keyboard.press('Enter');
       ctx.logger.info(`  ✅ 已插入尺码表 (${sizeTable.length} 字符)`);
     } else {
