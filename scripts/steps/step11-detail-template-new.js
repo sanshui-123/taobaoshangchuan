@@ -247,43 +247,39 @@ const step11Detail = async (ctx) => {
       ctx.logger.info(`  可用字段: ${Object.keys(productData).join(', ')}`);
     }
 
-    // ==================== 步骤5.5：重新定位光标到图片左侧并创建新行（确保图文分离） ====================
-    ctx.logger.info('\n[步骤5.5] 重新定位光标确保图文分离');
+    // ==================== 步骤5.5：强化光标重定位（确保图文分离） ====================
+    ctx.logger.info('\n[步骤5.5] 强化光标重定位确保图文分离');
 
-    // 再次找到编辑模块中的第一张图片
-    try {
-      const firstImageAgain = page.getByLabel('编辑模块').locator('img').first();
-
-      if (await firstImageAgain.isVisible({ timeout: 2000 })) {
-        // hover图片
-        await firstImageAgain.hover();
-        await page.waitForTimeout(100);
-        ctx.logger.info('  已hover第一张图片');
-
-        // 获取图片位置并点击其左侧
-        const boxAgain = await firstImageAgain.boundingBox();
-        if (boxAgain) {
-          // 点击图片左侧位置
-          await page.mouse.click(boxAgain.x - 5, boxAgain.y + 5);
-          await page.waitForTimeout(200);
-          ctx.logger.info('  已点击图片左侧位置');
-
-          // 按Enter创建新行，确保图文分离
-          await page.keyboard.press('Enter');
-          await page.waitForTimeout(300);
-          ctx.logger.info('  ✅ 已创建新行，确保图文分离');
-        } else {
-          // 备用方案：使用箭头键
-          await firstImageAgain.click();
-          await page.keyboard.press('ArrowLeft');
-          await page.keyboard.press('Enter');
-          ctx.logger.info('  ✅ 使用箭头键创建新行');
-        }
-      } else {
-        ctx.logger.info('  ℹ️ 未找到图片，跳过重新定位');
+    const movedBeforeImage = await page.evaluate(() => {
+      const editable = document.querySelector('.next-dialog-body [contenteditable="true"]');
+      if (!editable) {
+        return false;
       }
-    } catch (e) {
-      ctx.logger.info(`  ℹ️ 重新定位失败: ${e.message}，继续执行`);
+      const firstImg = editable.querySelector('img');
+      if (!firstImg) {
+        return false;
+      }
+      const range = document.createRange();
+      range.setStartBefore(firstImg);
+      range.collapse(true);
+      const selection = window.getSelection();
+      if (!selection) {
+        return false;
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+    });
+
+    if (movedBeforeImage) {
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(200);
+      ctx.logger.info('  ✅ 已将光标定位在图片前的空行');
+    } else {
+      ctx.logger.info('  ℹ️ 未定位到图片，保持当前光标位置');
     }
 
     // ==================== 步骤6：点击图像按钮进入素材库 ====================
