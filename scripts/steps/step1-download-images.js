@@ -3,6 +3,7 @@ const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cac
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const sharp = require('sharp');
 
 /**
  * 步骤1：下载图片
@@ -155,7 +156,7 @@ const step1 = async (ctx) => {
             timeout: 45000,
             headers: {
               'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              'Accept': 'image/jpeg,image/png,image/gif,image/*,*/*;q=0.8',  // 不接受 webp
               'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
               'Accept-Encoding': 'gzip, deflate, br',
               'Referer': 'https://www.callawaygolf.jp/',
@@ -163,9 +164,27 @@ const step1 = async (ctx) => {
             }
           });
           imageBuffer = Buffer.from(response.data);
+
+          // 检测并转换 webp 为 jpg
+          const contentType = response.headers['content-type'] || '';
+          if (contentType.includes('webp') || imageIdentifier.toLowerCase().endsWith('.webp')) {
+            ctx.logger.info(`    🔄 检测到 webp 格式，转换为 jpg...`);
+            imageBuffer = await sharp(imageBuffer).jpeg({ quality: 95 }).toBuffer();
+          }
         } else {
           // 正式下载（使用file_token）
           imageBuffer = await downloadAttachment(imageIdentifier);
+
+          // 检测 webp 格式（通过文件头魔数）
+          // WebP 文件头: RIFF....WEBP
+          if (imageBuffer.length > 12 &&
+              imageBuffer[0] === 0x52 && imageBuffer[1] === 0x49 &&
+              imageBuffer[2] === 0x46 && imageBuffer[3] === 0x46 &&
+              imageBuffer[8] === 0x57 && imageBuffer[9] === 0x45 &&
+              imageBuffer[10] === 0x42 && imageBuffer[11] === 0x50) {
+            ctx.logger.info(`    🔄 检测到 webp 格式（飞书附件），转换为 jpg...`);
+            imageBuffer = await sharp(imageBuffer).jpeg({ quality: 95 }).toBuffer();
+          }
         }
 
         // 保存图片
