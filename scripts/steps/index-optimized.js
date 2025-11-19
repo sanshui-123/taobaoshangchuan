@@ -5,8 +5,8 @@
 
 // 导入步骤（基于实际文件结构）
 
-// 步骤4：打开发布页面
-const { step4 } = require('./step4-open-page');
+// 步骤4：打开发布页面（优化版）
+const { step4 } = require('./step4-open-page-optimized');
 
 // 步骤5：上传1:1主图（优化版）
 const { step5 } = require('./step5-upload-images-optimized');
