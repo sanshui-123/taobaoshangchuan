@@ -119,30 +119,50 @@ const step11Detail = async (ctx) => {
       if (await sizeNoteParagraph.isVisible({ timeout: 2000 })) {
         // 先悬停在文字上
         await sizeNoteParagraph.hover();
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(200);
 
-        // 点击文字（会将光标放在某处）
-        await sizeNoteParagraph.click();
-        await page.waitForTimeout(100);
+        // 点击文字最右侧位置（使用文字的最后部分）
+        const lastPart = page.getByLabel('编辑模块').getByText('4L=XXXL', { exact: false });
+        if (await lastPart.isVisible({ timeout: 1000 })) {
+          await lastPart.click();
+          ctx.logger.info('  点击了文字末尾部分');
+        } else {
+          await sizeNoteParagraph.click();
+        }
+        await page.waitForTimeout(200);
 
         // 按End键移动到行末
         await page.keyboard.press('End');
         await page.waitForTimeout(100);
 
-        // 再按右箭头确保在最末尾
-        await page.keyboard.press('ArrowRight');
-        await page.waitForTimeout(100);
+        // 多按几次右箭头确保真的在最末尾
+        for (let i = 0; i < 3; i++) {
+          await page.keyboard.press('ArrowRight');
+          await page.waitForTimeout(50);
+        }
 
         ctx.logger.info('  ✅ 已定位到尺码注释行最末尾');
       } else {
         // 备用方案：使用Ctrl+End定位到文档末尾
-        await page.keyboard.press('Control+End');
-        ctx.logger.info('  ℹ️ 未找到尺码注释行，使用文档末尾位置');
+        ctx.logger.info('  ℹ️ 未找到精确文本，尝试模糊匹配');
+
+        // 尝试只匹配前半部分
+        const partialText = page.getByLabel('编辑模块').getByText('注：SS=XS', { exact: false });
+        if (await partialText.isVisible({ timeout: 2000 })) {
+          await partialText.click();
+          await page.keyboard.press('End');
+          await page.keyboard.press('ArrowRight');
+          ctx.logger.info('  ✅ 通过部分文本定位成功');
+        } else {
+          await page.keyboard.press('Control+End');
+          ctx.logger.info('  ℹ️ 使用文档末尾位置');
+        }
       }
     } catch (e) {
       // 如果精确匹配失败，使用Ctrl+End定位到文档末尾
+      ctx.logger.error(`  定位失败: ${e.message}`);
       await page.keyboard.press('Control+End');
-      ctx.logger.info('  ℹ️ 定位失败，使用文档末尾位置');
+      ctx.logger.info('  ℹ️ 使用文档末尾位置作为备选');
     }
 
     // 按回车创建新行
@@ -153,17 +173,30 @@ const step11Detail = async (ctx) => {
     ctx.logger.info('\n[步骤4] 插入详情页文字');
 
     // 从飞书数据中获取详情文案（可能是数组）
-    const detailText = Array.isArray(productData.detailCN)
-      ? productData.detailCN.join('\n')
-      : (productData.detailCN || productData.detailText || '');
+    let detailText = '';
+    if (Array.isArray(productData.detailCN)) {
+      detailText = productData.detailCN.join('\n');
+      ctx.logger.info(`  从数组获取详情文案: ${productData.detailCN.length} 行`);
+    } else if (productData.detailCN) {
+      detailText = productData.detailCN;
+      ctx.logger.info(`  从字符串获取详情文案`);
+    } else if (productData.detailText) {
+      detailText = productData.detailText;
+      ctx.logger.info(`  从 detailText 字段获取详情文案`);
+    }
 
-    if (detailText) {
-      // 使用 insertText 插入文字
+    if (detailText && detailText.trim()) {
+      // 打印前50个字符用于调试
+      ctx.logger.info(`  详情文案预览: ${detailText.substring(0, 50)}...`);
+
+      // 使用 insertText 插入文字，确保完整插入
       await page.keyboard.insertText(detailText);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500); // 增加等待时间确保文字完整插入
+
       // 插入后换两行，与尺码表分隔
       await page.keyboard.press('Enter');
       await page.keyboard.press('Enter');
+
       ctx.logger.info(`  ✅ 已插入详情页文字 (${detailText.length} 字符)`);
     } else {
       ctx.logger.info('  ℹ️ 无详情页文字，跳过');
@@ -173,14 +206,33 @@ const step11Detail = async (ctx) => {
     ctx.logger.info('\n[步骤5] 插入尺码表');
 
     // 从飞书数据中获取尺码表
-    const sizeTable = productData.sizeTable || productData.sizeTableText || '';
+    let sizeTable = '';
+    if (productData.sizeTable) {
+      sizeTable = productData.sizeTable;
+      ctx.logger.info(`  从 sizeTable 字段获取尺码表`);
+    } else if (productData.sizeTableText) {
+      sizeTable = productData.sizeTableText;
+      ctx.logger.info(`  从 sizeTableText 字段获取尺码表`);
+    }
 
-    if (sizeTable) {
+    // 处理数组格式的尺码表
+    if (Array.isArray(sizeTable)) {
+      sizeTable = sizeTable.join('\n');
+      ctx.logger.info(`  尺码表为数组格式，已合并`);
+    }
+
+    if (sizeTable && sizeTable.trim()) {
+      // 打印前50个字符用于调试
+      ctx.logger.info(`  尺码表预览: ${sizeTable.substring(0, 50)}...`);
+
+      // 使用 insertText 插入尺码表，确保完整插入
       await page.keyboard.insertText(sizeTable);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500); // 增加等待时间确保文字完整插入
+
       // 插入后换两行，与图片分隔
       await page.keyboard.press('Enter');
       await page.keyboard.press('Enter');
+
       ctx.logger.info(`  ✅ 已插入尺码表 (${sizeTable.length} 字符)`);
     } else {
       ctx.logger.info('  ℹ️ 无尺码表，跳过');
