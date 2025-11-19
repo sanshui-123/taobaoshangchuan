@@ -28,20 +28,17 @@ const { step7: step8 } = require('./step7-fill-basic');
 // 步骤9：价格库存填写（新简化版）
 const { step9PriceStock } = require('./step9-fill-price-stock-new');
 
-// 步骤10：尺码
-const { step9: step10 } = require('./step9-fill-sizes');
+// 步骤10：3:4主图裁剪（新简化版）
+const { step10Crop } = require('./step10-crop-3to4-new');
 
-// 步骤11：3:4主图
-const { step11: step11_crop } = require('./step11-crop-3to4-images');
+// 步骤11：模版处理
+const { step12: step11_template } = require('./step12-fill-detail-template');
 
-// 步骤12：模版处理
-const { step12: step12_template } = require('./step12-fill-detail-template');
+// 步骤12：提交商品
+const { step13: step12_submit } = require('./step13-submit-product');
 
-// 步骤14：最后一步
-const { step13: step14 } = require('./step13-submit-product');
-
-// 步骤15：提交商品
-const { step14: step15 } = require('./step14-log-and-notify');
+// 步骤13：日志通知
+const { step14: step13_notify } = require('./step14-log-and-notify');
 
 // 步骤注册表
 const steps = {
@@ -54,12 +51,11 @@ const steps = {
   6: step6,   // 填写标题和分类
   7: step7,   // 选择品牌
   8: step8,   // 填写货号和性别
-  9: step9PriceStock,   // 价格库存填写（新简化版）
-  10: step10, // 尺码
-  11: step11_crop, // 3:4主图
-  12: step12_template, // 模版处理
-  13: step14, // 提交商品
-  14: step15  // 日志通知
+  9: step9PriceStock,   // 价格库存填写
+  10: step10Crop, // 3:4主图裁剪
+  11: step11_template, // 详情模版
+  12: step12_submit, // 提交商品
+  13: step13_notify  // 日志通知
 };
 
 module.exports = { steps };
