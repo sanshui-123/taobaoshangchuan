@@ -31,6 +31,65 @@ const step13 = async (ctx) => {
       throw new Error('未找到任务缓存');
     }
 
+    // 步骤0：选择上架时间（放入仓库）
+    ctx.logger.info('\n[步骤0] 选择上架时间 - 放入仓库');
+
+    // 查找"放入仓库"单选按钮
+    const warehouseSelectors = [
+      'input[type="radio"][name="放入仓库"]',
+      'input.next-radio-input[name="放入仓库"]',
+      'label:has-text("放入仓库") input[type="radio"]',
+      '//label[contains(text(), "放入仓库")]/..//input[@type="radio"]'
+    ];
+
+    let warehouseRadio = null;
+    for (const selector of warehouseSelectors) {
+      if (selector.startsWith('//')) {
+        // XPath selector
+        const elements = await page.$$(selector);
+        if (elements.length > 0) {
+          warehouseRadio = elements[0];
+          ctx.logger.info(`找到"放入仓库"选项 (XPath)`);
+          break;
+        }
+      } else {
+        warehouseRadio = await page.$(selector);
+        if (warehouseRadio) {
+          ctx.logger.info(`找到"放入仓库"选项: ${selector}`);
+          break;
+        }
+      }
+    }
+
+    // 如果没找到，尝试通过文本查找
+    if (!warehouseRadio) {
+      // 尝试通过getByText查找并点击
+      try {
+        const warehouseOption = page.getByText('放入仓库', { exact: true });
+        await warehouseOption.click();
+        ctx.logger.info('✅ 通过文本定位选择了"放入仓库"');
+      } catch (e) {
+        // 如果还是找不到，尝试点击包含文本的父元素
+        try {
+          await page.locator('text=放入仓库').click();
+          ctx.logger.info('✅ 通过locator选择了"放入仓库"');
+        } catch (e2) {
+          ctx.logger.warn('未找到"放入仓库"选项，继续执行...');
+        }
+      }
+    } else {
+      // 检查是否已经选中
+      const isChecked = await warehouseRadio.isChecked();
+      if (!isChecked) {
+        await warehouseRadio.click();
+        ctx.logger.info('✅ 已选择"放入仓库"');
+      } else {
+        ctx.logger.info('✅ "放入仓库"已经被选中');
+      }
+    }
+
+    await page.waitForTimeout(1000);
+
     // 步骤1：提交前验证
     ctx.logger.info('\n[步骤1] 提交前验证');
 
@@ -70,6 +129,8 @@ const step13 = async (ctx) => {
 
     // 查找提交按钮
     const submitSelectors = [
+      'button:has-text("提交宝贝信息")',  // 优先查找"提交宝贝信息"按钮
+      'button.next-btn.next-btn-primary.next-large:has-text("提交宝贝信息")',
       'button:has-text("立即发布")',
       'button:has-text("发布商品")',
       'button:has-text("提交")',
@@ -180,6 +241,8 @@ const step13 = async (ctx) => {
       };
     }
 
+    // 步骤5-7：暂时跳过（不需要获取商品ID、保存截图、更新飞书状态）
+    /*
     // 步骤5：获取商品ID（如果提交成功）
     let taobaoProductId = null;
     if (submitResult.status === 'success') {
@@ -251,15 +314,15 @@ const step13 = async (ctx) => {
       await feishuClient.updateRecord(ctx.feishuRecordId, updateFields);
       ctx.logger.info('✅ 飞书状态已更新');
     }
+    */
+    let taobaoProductId = null; // 保持变量定义以防后续代码引用
 
     // 更新缓存
     taskCache.submitResults = {
       status: submitResult.status,
       message: submitResult.message,
-      taobaoProductId: taobaoProductId,
-      taobaoUrl: taobaoProductId ? `https://item.taobao.com/item.htm?id=${taobaoProductId}` : null,
-      submitTime: new Date().toISOString(),
-      screenshot: screenshotPath
+      submitTime: new Date().toISOString()
+      // taobaoProductId, taobaoUrl, screenshot 暂时不需要
     };
 
     saveTaskCache(productId, taskCache);
@@ -268,11 +331,6 @@ const step13 = async (ctx) => {
     ctx.logger.success('\n=== 商品提交完成 ===');
     ctx.logger.info(`提交状态: ${submitResult.status === 'success' ? '✅ 成功' : '❌ 失败'}`);
     ctx.logger.info(`提交信息: ${submitResult.message}`);
-
-    if (taobaoProductId) {
-      ctx.logger.info(`淘宝商品ID: ${taobaoProductId}`);
-      ctx.logger.info(`商品链接: https://item.taobao.com/item.htm?id=${taobaoProductId}`);
-    }
 
     if (submitResult.status !== 'success') {
       throw new Error(`商品提交失败: ${submitResult.message}`);
