@@ -8,6 +8,7 @@ const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cac
  * 2. 基础信息 → 货号
  * 3. 基础信息 → 适用性别（根据标题识别性别，选择"男"或"女"）
  */
+
 const step7 = async (ctx) => {
   ctx.logger.info('开始填写商品编码和基础信息（商家编码+货号+适用性别）');
 

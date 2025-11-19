@@ -31,8 +31,8 @@ const { step9PriceStock } = require('./step9-fill-price-stock-new');
 // 步骤10：3:4主图裁剪（新简化版）
 const { step10Crop } = require('./step10-crop-3to4-new');
 
-// 步骤11：模版处理
-const { step12: step11_template } = require('./step12-fill-detail-template');
+// 步骤11：详情模板（新简化版）
+const { step11Detail } = require('./step11-detail-template-new');
 
 // 步骤12：提交商品
 const { step13: step12_submit } = require('./step13-submit-product');
@@ -53,7 +53,7 @@ const steps = {
   8: step8,   // 填写货号和性别
   9: step9PriceStock,   // 价格库存填写
   10: step10Crop, // 3:4主图裁剪
-  11: step11_template, // 详情模版
+  11: step11Detail, // 详情模版
   12: step12_submit, // 提交商品
   13: step13_notify  // 日志通知
 };

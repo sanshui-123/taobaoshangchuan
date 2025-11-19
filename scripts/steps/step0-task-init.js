@@ -330,7 +330,8 @@ async function processRecord(record, ctx) {
     price: getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格'),
     images: getImageUrls(fields, process.env.FEISHU_IMAGE_FIELD || '图片URL'),
     colors: getMultiValueField(fields, process.env.FEISHU_COLOR_FIELD || '颜色'),
-    sizes: getMultiValueField(fields, process.env.FEISHU_SIZE_FIELD || '尺码')
+    sizes: getMultiValueField(fields, process.env.FEISHU_SIZE_FIELD || '尺码'),
+    sizeTable: getFieldValue(fields, process.env.FEISHU_SIZE_TABLE_FIELD || '尺码表')
   };
 
   ctx.logger.info(`商品ID: ${productId}`);

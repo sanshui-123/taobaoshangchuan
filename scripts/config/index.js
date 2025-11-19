@@ -39,6 +39,7 @@ exports.FEISHU_CONFIG = {
   BRAND_FIELD: process.env.FEISHU_BRAND_FIELD || '品牌',
   COLOR_FIELD: process.env.FEISHU_COLOR_FIELD || '颜色',
   SIZE_FIELD: process.env.FEISHU_SIZE_FIELD || '尺码',
+  SIZE_TABLE_FIELD: process.env.FEISHU_SIZE_TABLE_FIELD || '尺码表',
   STATUS_FIELD: process.env.FEISHU_STATUS_FIELD || '上传状态',
   ERROR_LOG_FIELD: process.env.FEISHU_ERROR_LOG_FIELD || '错误日志',
   URL_FIELD: process.env.FEISHU_URL_FIELD || '淘宝链接',
