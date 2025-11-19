@@ -100,8 +100,68 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info('  ✅ 已打开模板编辑弹窗');
 
-    // ==================== 步骤4：点击图像按钮进入素材库 ====================
-    ctx.logger.info('\n[步骤4] 点击图像按钮进入素材库');
+    // ==================== 步骤3.5：定位到"注：SS=XS..."行末尾 ====================
+    ctx.logger.info('\n[步骤3.5] 定位光标到尺码注释行末尾');
+
+    // 在编辑弹窗中找到可编辑区域
+    const editableArea = page.locator('.next-dialog-body [contenteditable="true"]').first();
+
+    // 使用 Ctrl+F 查找文本，或者用键盘导航
+    // 先点击编辑区域获取焦点
+    await editableArea.click();
+    await page.waitForTimeout(300);
+
+    // 使用 Ctrl+End 移动到文档末尾，然后向上查找
+    await page.keyboard.press('Control+End');
+    await page.waitForTimeout(200);
+
+    // 查找包含"注：SS=XS"的段落并点击
+    try {
+      const sizeNoteParagraph = page.locator('.next-dialog-body p:has-text("注：SS=XS")').first();
+      if (await sizeNoteParagraph.isVisible({ timeout: 2000 })) {
+        await sizeNoteParagraph.click();
+        await page.waitForTimeout(200);
+        // 移动到行末
+        await page.keyboard.press('End');
+        ctx.logger.info('  ✅ 已定位到尺码注释行');
+      }
+    } catch (e) {
+      ctx.logger.info('  ℹ️ 未找到尺码注释行，使用文档末尾位置');
+    }
+
+    // 按回车创建新行
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+
+    // ==================== 步骤4：插入详情页文字 ====================
+    ctx.logger.info('\n[步骤4] 插入详情页文字');
+
+    const detailText = productData.detailText || '';
+    if (detailText) {
+      // 使用 insertText 插入文字
+      await page.keyboard.insertText(detailText);
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      ctx.logger.info(`  ✅ 已插入详情页文字 (${detailText.length} 字符)`);
+    } else {
+      ctx.logger.info('  ℹ️ 无详情页文字，跳过');
+    }
+
+    // ==================== 步骤5：插入尺码表 ====================
+    ctx.logger.info('\n[步骤5] 插入尺码表');
+
+    const sizeTable = productData.sizeTable || '';
+    if (sizeTable) {
+      await page.keyboard.insertText(sizeTable);
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      ctx.logger.info(`  ✅ 已插入尺码表 (${sizeTable.length} 字符)`);
+    } else {
+      ctx.logger.info('  ℹ️ 无尺码表，跳过');
+    }
+
+    // ==================== 步骤6：点击图像按钮进入素材库 ====================
+    ctx.logger.info('\n[步骤6] 点击图像按钮进入素材库');
 
     // 在弹窗中找图像按钮
     const imageButtonSelectors = [
@@ -135,8 +195,8 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info('  ✅ 已打开图像选择弹窗');
 
-    // ==================== 步骤5：搜索商品文件夹 ====================
-    ctx.logger.info('\n[步骤5] 搜索商品文件夹');
+    // ==================== 步骤7：搜索商品文件夹 ====================
+    ctx.logger.info('\n[步骤7] 搜索商品文件夹');
 
     // 动态查找包含搜索框的 iframe（参考 Step5 的逻辑）
     const iframes = page.locator('iframe');
@@ -183,8 +243,8 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info(`  ✅ 已选择文件夹: ${productId}`);
 
-    // ==================== 步骤6：从最后一张往前选择图片 ====================
-    ctx.logger.info('\n[步骤6] 选择图片（从最后一张往前）');
+    // ==================== 步骤8：从最后一张往前选择图片 ====================
+    ctx.logger.info('\n[步骤8] 选择图片（从最后一张往前）');
 
     // 不尝试排序，直接获取图片数量
     const imageCards = imageFrame.locator('.PicList_pic_background__pGTdV');
@@ -217,18 +277,77 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info(`  ✅ 已选择 ${imageCount} 张图片`);
 
-    // ==================== 步骤7：确认选择 ====================
-    ctx.logger.info('\n[步骤7] 确认选择');
+    // ==================== 步骤9：点击素材库弹窗的"确定（N）"按钮 ====================
+    ctx.logger.info('\n[步骤9] 点击素材库弹窗确定按钮');
 
-    // 只点击确定按钮，不点击"本地上传"等其他按钮
-    const confirmBtn = imageFrame.getByRole('button', { name: /确定/ }).first();
-    await confirmBtn.click({ force: true });
+    // 素材库弹窗的确定按钮：button.next-btn.next-medium.next-btn-primary.Footer_selectOk__...
+    // 文字会显示"确定（22）"等
+    const imageLibraryConfirmSelectors = [
+      () => imageFrame.locator('button.Footer_selectOk__nEl3N'),  // 精确类名
+      () => imageFrame.locator('button[class*="Footer_selectOk"]'),  // 模糊匹配类名
+      () => imageFrame.getByRole('button', { name: /确定\s*\(\d+\)/ }),  // 匹配"确定（N）"
+      () => imageFrame.getByRole('button', { name: /确定/ }).first()  // 通用备选
+    ];
+
+    let imageLibraryConfirmBtn = null;
+    for (let i = 0; i < imageLibraryConfirmSelectors.length; i++) {
+      try {
+        const btn = imageLibraryConfirmSelectors[i]();
+        if (await btn.isVisible({ timeout: 1000 })) {
+          imageLibraryConfirmBtn = btn;
+          ctx.logger.info(`  ✅ 找到素材库确定按钮 (方式${i + 1})`);
+          break;
+        }
+      } catch (e) {
+        // 继续尝试
+      }
+    }
+
+    if (!imageLibraryConfirmBtn) {
+      throw new Error('未找到素材库弹窗的确定按钮');
+    }
+
+    await imageLibraryConfirmBtn.click({ force: true });
+    await page.waitForTimeout(1500);
+
+    ctx.logger.info('  ✅ 已点击素材库确定按钮');
+
+    // ==================== 步骤10：点击编辑模块弹窗的"确定"按钮 ====================
+    ctx.logger.info('\n[步骤10] 点击编辑模块弹窗确定按钮');
+
+    // 编辑模块弹窗的确定按钮：button.next-btn.next-medium.next-btn-primary.next-dialog-btn
+    const editDialogConfirmSelectors = [
+      () => page.locator('button.next-dialog-btn.next-btn-primary'),  // 精确类名
+      () => page.locator('button[class*="next-dialog-btn"][class*="next-btn-primary"]'),
+      () => page.locator('.next-dialog-footer button.next-btn-primary'),
+      () => page.getByRole('button', { name: '确定' }).last()  // 最后一个确定按钮
+    ];
+
+    let editDialogConfirmBtn = null;
+    for (let i = 0; i < editDialogConfirmSelectors.length; i++) {
+      try {
+        const btn = editDialogConfirmSelectors[i]();
+        if (await btn.isVisible({ timeout: 2000 })) {
+          editDialogConfirmBtn = btn;
+          ctx.logger.info(`  ✅ 找到编辑模块确定按钮 (方式${i + 1})`);
+          break;
+        }
+      } catch (e) {
+        // 继续尝试
+      }
+    }
+
+    if (!editDialogConfirmBtn) {
+      throw new Error('未找到编辑模块弹窗的确定按钮');
+    }
+
+    await editDialogConfirmBtn.click({ force: true });
     await page.waitForTimeout(1000);
 
-    ctx.logger.info('  ✅ 已确认图片选择');
+    ctx.logger.info('  ✅ 已点击编辑模块确定按钮，图片已写入编辑器');
 
-    // ==================== 步骤8：保存结果 ====================
-    ctx.logger.info('\n[步骤8] 保存结果');
+    // ==================== 步骤11：保存结果 ====================
+    ctx.logger.info('\n[步骤11] 保存结果');
 
     // 更新缓存
     taskCache.detailResults = {
