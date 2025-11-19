@@ -170,13 +170,19 @@ async function fillTitleAndCategory(page, productData, logger = console) {
  * Step5 主函数（供 publish.js 调用）
  */
 const step5 = async (ctx) => {
-  const { productId, taskCache, logger, page1 } = ctx;
+  const { productId, logger, page1 } = ctx;
 
   logger.info('开始填写商品标题和分类');
 
   try {
+    // 从缓存加载商品数据（兼容 ctx.taskCache 或从文件加载）
+    let taskCache = ctx.taskCache;
+    if (!taskCache || !taskCache.productData) {
+      taskCache = loadTaskCache(productId);
+    }
+
     // 验证必要数据
-    if (!taskCache.productData) {
+    if (!taskCache || !taskCache.productData) {
       throw new Error('缺少商品数据，请先执行 Step0 获取飞书数据');
     }
 

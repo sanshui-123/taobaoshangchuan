@@ -388,8 +388,9 @@ async function scanAndMarkPending(ctx) {
   ctx.logger.info('🔍 开始扫描空状态的记录...');
 
   try {
-    // 获取所有记录
-    const allRecords = await feishuClient.getAllRecords();
+    // 获取所有记录 - 传入空数组以获取所有记录，不进行过滤
+    const response = await feishuClient.getRecords(1000, []);
+    const allRecords = response.records || response.items || [];
     const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
     const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
 
@@ -423,9 +424,9 @@ async function scanAndMarkPending(ctx) {
     }));
 
     // 执行批量更新
-    const response = await feishuClient.batchUpdateRecords(updateRecords);
+    const updateResponse = await feishuClient.batchUpdateRecords(updateRecords);
 
-    if (response && response.code === 0) {
+    if (updateResponse && updateResponse.code === 0) {
       ctx.logger.success(`✅ 成功更新 ${emptyRecords.length} 条记录为"${checkingValue}"状态`);
 
       // 显示更新的商品ID

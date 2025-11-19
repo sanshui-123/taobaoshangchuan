@@ -143,6 +143,19 @@ const step5 = async (ctx) => {
     // 步骤3：点击第一个白底图上传位
     ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
 
+    // 🔧 修复：设置 filechooser 事件监听器，拦截可能出现的原生文件对话框
+    // 当点击上传位时，如果触发了 <input type="file">，会弹出系统文件选择器（Finder）
+    // 使用 once 监听器来自动取消这个对话框，避免它一直挂在前面
+    let fileChooserTriggered = false;
+    const fileChooserHandler = async (fileChooser) => {
+      fileChooserTriggered = true;
+      ctx.logger.warn('  ⚠️  检测到原生文件对话框，自动取消...');
+      // 取消文件选择器（不选择任何文件）
+      await fileChooser.setFiles([]);
+      ctx.logger.info('  ✅ 原生文件对话框已关闭');
+    };
+    page.once('filechooser', fileChooserHandler);
+
     // 多种可能的选择器，优先级从高到低（根据实际DOM结构优化）
     const uploadBoxSelectors = [
       // 优先：精确的class选择器
@@ -206,12 +219,23 @@ const step5 = async (ctx) => {
     }
 
     if (!uploadBoxClicked) {
+      // 移除未触发的事件监听器
+      page.removeListener('filechooser', fileChooserHandler);
       throw new Error('无法找到上传位，请检查页面结构');
+    }
+
+    // 等待一小段时间看 filechooser 是否被触发
+    await page.waitForTimeout(500);
+
+    // 移除未触发的事件监听器（避免内存泄漏）
+    if (!fileChooserTriggered) {
+      page.removeListener('filechooser', fileChooserHandler);
+      ctx.logger.info('  素材库弹窗模式（未触发原生文件对话框）');
     }
 
     // 点击后等待弹窗开始加载
     ctx.logger.info('等待弹窗开始出现...');
-    await page.waitForTimeout(2000);  // 增加到2秒，给弹窗足够的时间开始加载
+    await page.waitForTimeout(1500);  // 减少等待时间，因为前面已经等了500ms
 
     // 调试截图：查看点击后的状态
     const debugScreenshotAfter = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click.png';
