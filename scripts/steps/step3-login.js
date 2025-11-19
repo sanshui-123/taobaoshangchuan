@@ -2,10 +2,11 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
+const browserManager = require('../utils/browser-manager');
 
 /**
  * 步骤3：登录并保存storage状态
- * 检查或执行登录流程
+ * 通过实际访问检测登录状态，而不是仅检查文件时间
  */
 const step3 = async (ctx) => {
   ctx.logger.info('检查登录状态');
@@ -22,51 +23,23 @@ const step3 = async (ctx) => {
   }, 5000);
 
   try {
-    // 1. 检查storage文件是否存在
-    if (!fs.existsSync(storagePath)) {
-      ctx.logger.info('登录状态文件不存在，需要登录');
-      await performLogin(ctx);
-      return;
-    }
+    // 通过实际访问检测登录状态
+    const isLoggedIn = await checkLoginByAccess(ctx);
 
-    // 2. 检查storage文件是否过期（超过24小时）
-    const stats = fs.statSync(storagePath);
-    const fileAge = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60); // 小时
-    const maxAge = 24; // 24小时有效期
+    if (isLoggedIn) {
+      ctx.logger.success('✅ 登录状态有效（实际访问检测）');
 
-    if (fileAge > maxAge) {
-      ctx.logger.warn(`登录状态已过期（${fileAge.toFixed(1)}小时），需要重新登录`);
-      await performLogin(ctx);
-      return;
-    }
-
-    // 3. 验证storage文件内容
-    try {
-      const storageContent = fs.readFileSync(storagePath, 'utf8');
-      const storageState = JSON.parse(storageContent);
-
-      // 检查是否有cookies
-      if (!storageState.cookies || storageState.cookies.length === 0) {
-        ctx.logger.warn('登录状态文件无效（无cookies），需要重新登录');
-        await performLogin(ctx);
-        return;
+      // 即使登录有效，也要检查storage文件是否存在，以便其他步骤使用
+      if (!fs.existsSync(storagePath)) {
+        ctx.logger.info('虽然已登录，但storage文件不存在，保存当前状态...');
+        await saveCurrentStorageState(ctx);
+      } else {
+        // 显示文件信息
+        const stats = fs.statSync(storagePath);
+        const fileAge = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+        ctx.logger.info(`Storage路径: ${storagePath}`);
+        ctx.logger.info(`文件年龄: ${fileAge.toFixed(1)}小时`);
       }
-
-      // 检查淘宝相关cookie是否存在
-      const taobaoCookies = storageState.cookies.filter(cookie =>
-        cookie.domain.includes('taobao.com') || cookie.domain.includes('tmall.com')
-      );
-
-      if (taobaoCookies.length === 0) {
-        ctx.logger.warn('登录状态文件无效（无淘宝cookie），需要重新登录');
-        await performLogin(ctx);
-        return;
-      }
-
-      ctx.logger.success('✅ 登录状态有效');
-      ctx.logger.info(`Storage路径: ${storagePath}`);
-      ctx.logger.info(`Cookie数量: ${storageState.cookies.length}`);
-      ctx.logger.info(`文件年龄: ${fileAge.toFixed(1)}小时`);
 
       // 更新缓存
       const taskCache = loadTaskCache(ctx.productId);
@@ -75,8 +48,8 @@ const step3 = async (ctx) => {
       taskCache.loginTime = new Date().toISOString();
       saveTaskCache(ctx.productId, taskCache);
 
-    } catch (parseError) {
-      ctx.logger.error(`登录状态文件格式错误: ${parseError.message}`);
+    } else {
+      ctx.logger.warn('登录状态无效，需要重新登录');
       await performLogin(ctx);
     }
 
@@ -91,6 +64,131 @@ const step3 = async (ctx) => {
     process.stdout.write('\n');
   }
 };
+
+/**
+ * 通过实际访问页面检测登录状态
+ */
+async function checkLoginByAccess(ctx) {
+  try {
+    ctx.logger.info('通过实际访问检测登录状态...');
+
+    // 使用browser-manager获取页面
+    const page = await browserManager.getPage();
+
+    // 访问千牛卖家中心首页
+    ctx.logger.info('访问千牛卖家中心...');
+    const response = await page.goto('https://myseller.taobao.com/home.htm', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+
+    // 等待一下让页面稳定
+    await page.waitForTimeout(2000);
+
+    // 获取当前URL
+    const currentUrl = page.url();
+    ctx.logger.info(`当前页面URL: ${currentUrl}`);
+
+    // 检查是否被重定向到登录页面
+    if (currentUrl.includes('login.taobao.com') ||
+        currentUrl.includes('passport') ||
+        currentUrl.includes('login.htm')) {
+      ctx.logger.info('检测到登录页面重定向');
+      return false;
+    }
+
+    // 检查是否在卖家中心首页
+    if (!currentUrl.includes('myseller.taobao.com')) {
+      ctx.logger.info('不在卖家中心页面');
+      return false;
+    }
+
+    // 检查页面是否有用户信息元素
+    try {
+      // 尝试查找用户信息相关元素
+      const userInfoSelectors = [
+        '.user-nick',
+        '.header-user',
+        '.user-info',
+        '.seller-nav',
+        '.menu-list',
+        '#J_SiteNav'
+      ];
+
+      let hasUserInfo = false;
+      for (const selector of userInfoSelectors) {
+        const element = await page.$(selector);
+        if (element) {
+          hasUserInfo = true;
+          ctx.logger.info(`找到用户信息元素: ${selector}`);
+          break;
+        }
+      }
+
+      if (!hasUserInfo) {
+        // 即使没找到用户信息元素，如果能正常访问页面也认为已登录
+        const pageTitle = await page.title();
+        ctx.logger.info(`页面标题: ${pageTitle}`);
+
+        if (pageTitle.includes('千牛') || pageTitle.includes('卖家')) {
+          ctx.logger.info('页面标题显示已在卖家中心');
+          return true;
+        }
+      }
+
+      return hasUserInfo;
+
+    } catch (checkError) {
+      ctx.logger.warn(`检查用户信息元素时出错: ${checkError.message}`);
+
+      // 如果检查出错但URL正确，认为已登录
+      if (currentUrl.includes('myseller.taobao.com/home.htm')) {
+        return true;
+      }
+      return false;
+    }
+
+  } catch (error) {
+    ctx.logger.error(`访问检测失败: ${error.message}`);
+
+    // 如果访问超时或出错，回退到文件检查
+    if (fs.existsSync(ctx.storagePath)) {
+      const stats = fs.statSync(ctx.storagePath);
+      const fileAge = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+
+      // 如果文件存在且不太旧（7天内），假设登录有效
+      if (fileAge < 24 * 7) {
+        ctx.logger.info(`访问检测失败，但storage文件存在（${fileAge.toFixed(1)}小时），假设登录有效`);
+        return true;
+      }
+    }
+
+    return false;
+  }
+}
+
+/**
+ * 保存当前浏览器的storage状态
+ */
+async function saveCurrentStorageState(ctx) {
+  try {
+    const context = await browserManager.getContext();
+    const storageState = await context.storageState();
+
+    // 确保目录存在
+    const storageDir = path.dirname(ctx.storagePath);
+    if (!fs.existsSync(storageDir)) {
+      fs.mkdirSync(storageDir, { recursive: true });
+    }
+
+    // 写入文件
+    fs.writeFileSync(ctx.storagePath, JSON.stringify(storageState, null, 2));
+    ctx.logger.success(`✅ 当前登录状态已保存到: ${ctx.storagePath}`);
+
+  } catch (error) {
+    ctx.logger.error(`保存storage状态失败: ${error.message}`);
+  }
+}
 
 /**
  * 执行登录流程
@@ -110,7 +208,7 @@ async function performLogin(ctx) {
     ctx.logger.info('启动登录脚本...');
     ctx.logger.info('提示：请在打开的浏览器中完成登录');
 
-    // 创建新的心跳定时器（独立于外部的作用域）
+    // 创建新的心跳定时器
     const loginHeartbeat = setInterval(() => {
       process.stdout.write('.');
     }, 5000);

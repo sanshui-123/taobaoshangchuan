@@ -1,10 +1,11 @@
-const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const browserManager = require('./scripts/utils/browser-manager');
 
 /**
  * 淘宝登录脚本
  * 保存登录状态到storage文件
+ * 现在使用browser-manager连接已有的Chrome实例
  */
 async function login() {
   console.log('🚀 启动淘宝登录流程...');
@@ -18,24 +19,12 @@ async function login() {
     fs.mkdirSync(storageDir, { recursive: true });
   }
 
-  let browser;
+  let page;
   try {
-    // 启动浏览器
-    console.log('🌐 启动浏览器...');
-    browser = await chromium.launch({
-      headless: false, // 必须有头模式，方便用户手动登录
-      args: [
-        '--start-maximized',
-        '--disable-blink-features=AutomationControlled'
-      ]
-    });
-
-    const context = await browser.newContext({
-      viewport: null,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    });
-
-    const page = await context.newPage();
+    // 使用browser-manager连接已有Chrome
+    console.log('🌐 连接到已有浏览器...');
+    const context = await browserManager.getContext();
+    page = await context.newPage();
 
     // 访问千牛主页
     console.log('📍 访问千牛主页...');
@@ -117,10 +106,26 @@ async function login() {
     console.log(`📸 登录截图已保存: ${screenshotPath}`);
 
     console.log('\n✅ 登录流程完成！');
+
+    // 关闭页面但保持浏览器开启
+    if (page) {
+      await page.close();
+      console.log('📄 登录页面已关闭');
+    }
+
     process.exit(0); // 退出码0：成功
 
   } catch (error) {
     console.error('\n❌ 登录失败:', error.message);
+
+    // 出错时也关闭页面
+    if (page) {
+      try {
+        await page.close();
+      } catch (e) {
+        // 忽略关闭页面的错误
+      }
+    }
 
     if (error.message.includes('SIGINT')) {
       console.log('   用户中断登录');
@@ -130,8 +135,8 @@ async function login() {
     process.exit(1); // 退出码1：其他错误
 
   } finally {
-    // 注意：不关闭浏览器，让 browser-manager 管理生命周期
-    console.log('\n✅ 登录状态已保存，浏览器保持打开状态');
+    // 不关闭浏览器，让 browser-manager 管理生命周期
+    console.log('💡 Chrome浏览器保持打开状态，供后续步骤使用');
   }
 }
 
