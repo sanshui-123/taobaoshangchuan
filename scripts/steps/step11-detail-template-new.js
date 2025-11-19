@@ -100,8 +100,8 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info('  ✅ 已打开模板编辑弹窗');
 
-    // ==================== 步骤3.5：定位到"注：SS=XS..."行末尾 ====================
-    ctx.logger.info('\n[步骤3.5] 定位光标到尺码注释行末尾');
+    // ==================== 步骤3.5：定位到第一张图片左侧 ====================
+    ctx.logger.info('\n[步骤3.5] 定位光标到第一张图片左侧');
 
     // 在编辑弹窗中找到可编辑区域
     const editableArea = page.locator('.next-dialog-body [contenteditable="true"]').first();
@@ -110,63 +110,56 @@ const step11Detail = async (ctx) => {
     await editableArea.click();
     await page.waitForTimeout(300);
 
-    // 查找包含完整文字的段落，使用精确匹配避免截断
+    // 查找编辑器中的第一张图片（衣服图）
     try {
-      // 使用完整文本进行精确定位
-      const fullText = '注：SS=XS，LL=XL，3L=XXL，4L=XXXL';
-      const sizeNoteParagraph = page.getByLabel('编辑模块').getByText(fullText, { exact: true });
+      // 定位到编辑模块中的第一张图片
+      const firstImage = page.getByLabel('编辑模块').locator('img').first();
 
-      if (await sizeNoteParagraph.isVisible({ timeout: 2000 })) {
-        // 先悬停在文字上
-        await sizeNoteParagraph.hover();
-        await page.waitForTimeout(200);
+      if (await firstImage.isVisible({ timeout: 2000 })) {
+        ctx.logger.info('  找到第一张图片');
 
-        // 点击文字最右侧位置（使用文字的最后部分）
-        const lastPart = page.getByLabel('编辑模块').getByText('4L=XXXL', { exact: false });
-        if (await lastPart.isVisible({ timeout: 1000 })) {
-          await lastPart.click();
-          ctx.logger.info('  点击了文字末尾部分');
-        } else {
-          await sizeNoteParagraph.click();
-        }
-        await page.waitForTimeout(200);
-
-        // 按End键移动到行末
-        await page.keyboard.press('End');
+        // 先悬停在图片上
+        await firstImage.hover();
         await page.waitForTimeout(100);
 
-        // 多按几次右箭头确保真的在最末尾
-        for (let i = 0; i < 3; i++) {
-          await page.keyboard.press('ArrowRight');
-          await page.waitForTimeout(50);
-        }
-
-        ctx.logger.info('  ✅ 已定位到尺码注释行最末尾');
-      } else {
-        // 备用方案：使用Ctrl+End定位到文档末尾
-        ctx.logger.info('  ℹ️ 未找到精确文本，尝试模糊匹配');
-
-        // 尝试只匹配前半部分
-        const partialText = page.getByLabel('编辑模块').getByText('注：SS=XS', { exact: false });
-        if (await partialText.isVisible({ timeout: 2000 })) {
-          await partialText.click();
-          await page.keyboard.press('End');
-          await page.keyboard.press('ArrowRight');
-          ctx.logger.info('  ✅ 通过部分文本定位成功');
+        // 点击图片左上角位置，将光标放在图片左侧
+        // 使用相对位置点击，确保在图片左边
+        const box = await firstImage.boundingBox();
+        if (box) {
+          // 点击图片左边缘稍微偏左的位置
+          await page.mouse.click(box.x - 5, box.y + 10);
+          ctx.logger.info('  点击了图片左侧位置');
         } else {
-          await page.keyboard.press('Control+End');
-          ctx.logger.info('  ℹ️ 使用文档末尾位置');
+          // 备用方案：直接点击图片然后按左箭头
+          await firstImage.click();
+          await page.keyboard.press('ArrowLeft');
+          ctx.logger.info('  点击图片后按左箭头');
         }
+
+        await page.waitForTimeout(200);
+
+        // 按左箭头确保光标在图片左侧
+        await page.keyboard.press('ArrowLeft');
+        await page.waitForTimeout(100);
+
+        ctx.logger.info('  ✅ 已定位到图片左侧');
+      } else {
+        // 如果没找到图片，使用Ctrl+Home定位到文档开头
+        ctx.logger.info('  ℹ️ 未找到图片，使用文档开头位置');
+        await page.keyboard.press('Control+Home');
+        await page.waitForTimeout(100);
       }
     } catch (e) {
-      // 如果精确匹配失败，使用Ctrl+End定位到文档末尾
-      ctx.logger.error(`  定位失败: ${e.message}`);
-      await page.keyboard.press('Control+End');
-      ctx.logger.info('  ℹ️ 使用文档末尾位置作为备选');
+      ctx.logger.error(`  定位图片失败: ${e.message}`);
+      // 备用方案：定位到文档开头
+      await page.keyboard.press('Control+Home');
+      ctx.logger.info('  ℹ️ 使用文档开头位置作为备选');
     }
 
-    // 按回车创建新行
+    // 按回车创建新行，在图片上方插入内容
     await page.keyboard.press('Enter');
+    // 按上箭头回到新创建的空行
+    await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(200);
 
     // ==================== 步骤4：插入详情页文字 ====================
@@ -205,14 +198,22 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤5：插入尺码表 ====================
     ctx.logger.info('\n[步骤5] 插入尺码表');
 
-    // 从飞书数据中获取尺码表
+    // 从飞书数据中获取尺码表 - 尝试多个可能的字段名
     let sizeTable = '';
+
+    // 首先检查直接的尺码表字段
     if (productData.sizeTable) {
       sizeTable = productData.sizeTable;
       ctx.logger.info(`  从 sizeTable 字段获取尺码表`);
     } else if (productData.sizeTableText) {
       sizeTable = productData.sizeTableText;
       ctx.logger.info(`  从 sizeTableText 字段获取尺码表`);
+    } else if (productData.sizeTableCN) {
+      sizeTable = productData.sizeTableCN;
+      ctx.logger.info(`  从 sizeTableCN 字段获取尺码表`);
+    } else if (productData.size_table) {
+      sizeTable = productData.size_table;
+      ctx.logger.info(`  从 size_table 字段获取尺码表`);
     }
 
     // 处理数组格式的尺码表
@@ -221,13 +222,19 @@ const step11Detail = async (ctx) => {
       ctx.logger.info(`  尺码表为数组格式，已合并`);
     }
 
+    // 确保sizeTable是字符串
+    if (typeof sizeTable !== 'string') {
+      sizeTable = '';
+    }
+
     if (sizeTable && sizeTable.trim()) {
-      // 打印前50个字符用于调试
-      ctx.logger.info(`  尺码表预览: ${sizeTable.substring(0, 50)}...`);
+      // 打印前100个字符用于调试（尺码表可能比较长）
+      ctx.logger.info(`  尺码表预览: ${sizeTable.substring(0, 100)}...`);
+      ctx.logger.info(`  尺码表总长度: ${sizeTable.length} 字符`);
 
       // 使用 insertText 插入尺码表，确保完整插入
       await page.keyboard.insertText(sizeTable);
-      await page.waitForTimeout(500); // 增加等待时间确保文字完整插入
+      await page.waitForTimeout(800); // 增加等待时间确保文字完整插入
 
       // 插入后换两行，与图片分隔
       await page.keyboard.press('Enter');
@@ -235,8 +242,23 @@ const step11Detail = async (ctx) => {
 
       ctx.logger.info(`  ✅ 已插入尺码表 (${sizeTable.length} 字符)`);
     } else {
-      ctx.logger.info('  ℹ️ 无尺码表，跳过');
+      // 打印所有字段名帮助调试
+      ctx.logger.info('  ℹ️ 未找到尺码表数据');
+      ctx.logger.info(`  可用字段: ${Object.keys(productData).join(', ')}`);
     }
+
+    // ==================== 步骤5.5：移动到文字末尾准备插入图片 ====================
+    ctx.logger.info('\n[步骤5.5] 移动光标到文字末尾');
+
+    // 按Ctrl+End移动到文档末尾，确保在所有文字之后
+    await page.keyboard.press('Control+End');
+    await page.waitForTimeout(200);
+
+    // 再按一次Enter创建新行，确保图片不会截断文字
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(100);
+
+    ctx.logger.info('  ✅ 光标已移动到文字末尾，准备插入图片');
 
     // ==================== 步骤6：点击图像按钮进入素材库 ====================
     ctx.logger.info('\n[步骤6] 点击图像按钮进入素材库');
