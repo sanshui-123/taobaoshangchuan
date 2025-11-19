@@ -303,8 +303,8 @@ const step13 = async (ctx) => {
       }
     }
 
-    // 步骤5-7：暂时跳过（不需要获取商品ID、保存截图、更新飞书状态）
-    /*
+    // 步骤5-7：获取商品ID、保存截图、更新飞书状态
+
     // 步骤5：获取商品ID（如果提交成功）
     let taobaoProductId = null;
     if (submitResult.status === 'success') {
@@ -359,25 +359,29 @@ const step13 = async (ctx) => {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ctx.logger.info(`截图已保存: ${screenshotPath}`);
 
-    // 步骤7：更新飞书状态
+    // 步骤7：更新飞书状态为"已上传"
     ctx.logger.info('\n[步骤7] 更新飞书状态');
 
     if (ctx.feishuRecordId) {
       const updateFields = {
-        [process.env.FEISHU_STATUS_FIELD || 'status']: submitResult.status === 'success' ? '已发布' : '发布失败',
+        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? '已上传' : '发布失败',
         [process.env.FEISHU_ERROR_LOG_FIELD || 'error_log']: submitResult.message
       };
 
       if (taobaoProductId) {
-        updateFields[process.env.FEISHU_URL_FIELD || 'taobao_url'] = `https://item.taobao.com/item.htm?id=${taobaoProductId}`;
-        updateFields[process.env.FEISHU_PRODUCT_ID_FIELD || 'product_id'] = taobaoProductId;
+        updateFields[process.env.FEISHU_URL_FIELD || '商品链接'] = `https://item.taobao.com/item.htm?id=${taobaoProductId}`;
+        updateFields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'] = taobaoProductId;
       }
 
-      await feishuClient.updateRecord(ctx.feishuRecordId, updateFields);
-      ctx.logger.info('✅ 飞书状态已更新');
+      try {
+        await feishuClient.updateRecord(ctx.feishuRecordId, updateFields);
+        ctx.logger.success('✅ 飞书状态已更新为"已上传"');
+      } catch (updateError) {
+        ctx.logger.error(`更新飞书状态失败: ${updateError.message}`);
+      }
+    } else {
+      ctx.logger.warn('未找到飞书记录ID，跳过状态更新');
     }
-    */
-    let taobaoProductId = null; // 保持变量定义以防后续代码引用
 
     // 更新缓存
     taskCache.submitResults = {
@@ -405,7 +409,7 @@ const step13 = async (ctx) => {
     if (ctx.feishuRecordId) {
       try {
         await feishuClient.updateRecord(ctx.feishuRecordId, {
-          [process.env.FEISHU_STATUS_FIELD || 'status']: '发布失败',
+          [process.env.FEISHU_STATUS_FIELD || '上传状态']: '发布失败',
           [process.env.FEISHU_ERROR_LOG_FIELD || 'error_log']: `步骤13失败: ${error.message}`
         });
       } catch (updateError) {

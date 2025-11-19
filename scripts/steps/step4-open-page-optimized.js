@@ -26,12 +26,16 @@ async function enterSalesInfo(page, logger) {
  * 检测是否需要应用通用模版
  */
 async function needsApplyTemplate(page, logger) {
+  // 更新选择器：同时匹配 placeholder 和实际的 class
+  const colorSelector = '#sale-card .sell-color-item-wrap input, #sale-card input[placeholder*="颜色"]';
+  const sizeSelector = '#sale-card .sell-size-item-wrap input, #sale-card input[placeholder*="尺码"], #sale-card input[placeholder*="尺寸"]';
+
   // 检查是否有颜色分类输入框
-  const colorInputs = page.locator('#sale-card input[placeholder*="颜色"]');
+  const colorInputs = page.locator(colorSelector);
   const colorInputCount = await colorInputs.count();
 
   // 检查是否有尺码输入框
-  const sizeInputs = page.locator('#sale-card input[placeholder*="尺码"], #sale-card input[placeholder*="尺寸"]');
+  const sizeInputs = page.locator(sizeSelector);
   const sizeInputCount = await sizeInputs.count();
 
   if (colorInputCount === 0 && sizeInputCount === 0) {
@@ -46,13 +50,17 @@ async function needsApplyTemplate(page, logger) {
 /**
  * 等待属性出现（优化版）
  */
-async function waitForAttributesVisible(page, logger, timeout = 5000) {
+async function waitForAttributesVisible(page, logger, timeout = 10000) {
   const startTime = Date.now();
+
+  // 使用更宽泛的选择器
+  const colorSelector = '#sale-card .sell-color-item-wrap input, #sale-card input[placeholder*="颜色"]';
+  const sizeSelector = '#sale-card .sell-size-item-wrap input, #sale-card input[placeholder*="尺码"], #sale-card input[placeholder*="尺寸"]';
 
   while (Date.now() - startTime < timeout) {
     // 检查颜色和尺码输入框
-    const colorVisible = await page.locator('#sale-card input[placeholder*="颜色"]').first().isVisible().catch(() => false);
-    const sizeVisible = await page.locator('#sale-card input[placeholder*="尺码"], #sale-card input[placeholder*="尺寸"]').first().isVisible().catch(() => false);
+    const colorVisible = await page.locator(colorSelector).first().isVisible().catch(() => false);
+    const sizeVisible = await page.locator(sizeSelector).first().isVisible().catch(() => false);
 
     if (colorVisible && sizeVisible) {
       logger.info('  ✅ 销售属性已出现');
@@ -72,19 +80,40 @@ async function waitForAttributesVisible(page, logger, timeout = 5000) {
 async function detectAndSelectGeneralTemplate(page, logger) {
   logger.info('  尝试点击模板按钮...');
 
+  // 设置对话框处理器
+  const dialogHandler = dialog => {
+    logger.info('  检测到对话框，自动确认');
+    dialog.accept();
+  };
+  page.once('dialog', dialogHandler);
+
   // 先在 #sale-card 区域内查找模板按钮
   const templateBtnInCard = page.locator('#sale-card').getByText('模板', { exact: true });
   let clicked = false;
 
   if (await templateBtnInCard.isVisible()) {
+    // 创建对话框等待器
+    const dialogListener = page.waitForEvent('dialog', { timeout: 1000 })
+      .then(dialog => dialog.accept())
+      .catch(() => {}); // 如果没有对话框也不报错
+
     await templateBtnInCard.click();
+    await dialogListener; // 等待对话框处理完成
+
     logger.info('  在 #sale-card 内找到并点击 "模板"');
     clicked = true;
   } else {
     // 备用方案：在整个页面查找
     const templateBtn = page.getByRole('button', { name: '模板', exact: true }).first();
     if (await templateBtn.isVisible()) {
+      // 创建对话框等待器
+      const dialogListener = page.waitForEvent('dialog', { timeout: 1000 })
+        .then(dialog => dialog.accept())
+        .catch(() => {}); // 如果没有对话框也不报错
+
       await templateBtn.click();
+      await dialogListener; // 等待对话框处理完成
+
       logger.info('  找到并点击模板按钮');
       clicked = true;
     }
@@ -108,6 +137,9 @@ async function detectAndSelectGeneralTemplate(page, logger) {
 
   await generalTemplateOption.click();
   logger.info('  使用 getByText 选择通用模版');
+
+  // 清理对话框处理器
+  page.removeListener('dialog', dialogHandler);
 
   return true;
 }
@@ -161,12 +193,12 @@ async function processColors(page, targetColors, logger) {
   logger.info(`  目标颜色: ${targetColors.join(', ')}`);
   logger.info(`  目标数量: ${targetColors.length}`);
 
-  // 等待颜色输入框出现
-  const colorInputSelector = '#sale-card input[placeholder*="颜色"]';
+  // 使用更宽泛的选择器
+  const colorInputSelector = '#sale-card .sell-color-item-wrap input, #sale-card input[placeholder*="颜色"]';
 
   try {
-    // 等待颜色输入框出现（增加到5秒）
-    await page.waitForSelector(colorInputSelector, { timeout: 5000 });
+    // 等待颜色输入框出现（增加到10秒）
+    await page.waitForSelector(colorInputSelector, { timeout: 10000 });
   } catch (e) {
     logger.warn('  颜色输入框未出现，可能需要应用模板');
     throw new Error('颜色输入框未出现');
@@ -262,11 +294,20 @@ async function applyGeneralTemplate(page, logger) {
     throw new Error('无法应用通用模版');
   }
 
-  // 优化：先等待1秒让模板应用
+  // 等待模板应用完成
   await page.waitForTimeout(1000);
 
-  // 等待属性出现（增加超时到5秒）
-  const attributesVisible = await waitForAttributesVisible(page, logger, 5000);
+  // 使用正确的选择器等待元素出现
+  const colorSelector = '#sale-card .sell-color-item-wrap input, #sale-card input[placeholder*="颜色"]';
+  try {
+    await page.waitForSelector(colorSelector, { timeout: 10000 });
+    logger.info('  ✅ 颜色输入框已出现');
+  } catch (e) {
+    logger.warn('  等待颜色输入框超时，尝试继续');
+  }
+
+  // 等待属性出现（增加超时到10秒）
+  const attributesVisible = await waitForAttributesVisible(page, logger, 10000);
 
   if (attributesVisible) {
     logger.info('  ✅ 已应用通用模板');
