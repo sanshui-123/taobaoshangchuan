@@ -3,8 +3,8 @@ const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const browserManager = require('../utils/browser-manager');
 
-// 通用模板的固定尺码顺序（包含7个尺码）
-const TEMPLATE_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+// 通用模板的固定尺码顺序（包含8个尺码，含均码）
+const TEMPLATE_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '均码'];
 
 /**
  * 进入销售信息区域（滚动到该区域）
@@ -289,7 +289,7 @@ async function applyGeneralTemplate(page, logger) {
     logger.info('  ✅ 模板选择完成');
   }
 
-  logger.info('  模板预设: 6个颜色 + 7个尺码(XS/S/M/L/XL/XXL/XXXL)');
+  logger.info('  模板预设: 6个颜色 + 8个尺码(XS/S/M/L/XL/XXL/XXXL/均码)');
 }
 
 /**
