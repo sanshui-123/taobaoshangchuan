@@ -188,24 +188,63 @@ const step13 = async (ctx) => {
     }
 
     // 步骤4：等待提交结果
-    ctx.logger.info('\n[步骤4] 等待提交结果');
+    ctx.logger.info('\n[步骤4] 等待提交结果和页面跳转');
 
     // 等待页面跳转或结果提示
     let submitResult = null;
     let maxWait = 30; // 最多等待30秒
 
     for (let i = 0; i < maxWait; i++) {
-      // 检查是否有成功提示
-      const successMessage = await page.$('.success-message, .toast-success, [class*="success"]');
-      if (successMessage) {
-        const messageText = await successMessage.textContent();
-        if (messageText && messageText.includes('成功')) {
-          submitResult = {
-            status: 'success',
-            message: messageText.trim()
-          };
-          break;
+      // 首先检查页面URL是否跳转到成功页面
+      const currentUrl = page.url();
+
+      // 检查是否跳转到成功页面
+      if (currentUrl.includes('success') || currentUrl.includes('result') ||
+          currentUrl.includes('publish/success')) {
+        ctx.logger.info(`检测到页面跳转: ${currentUrl}`);
+
+        // 等待页面加载完成
+        await page.waitForTimeout(2000);
+
+        // 尝试获取成功页面的商品ID
+        const productIdOnPage = await page.evaluate(() => {
+          // 查找商品ID显示元素
+          const idElements = document.querySelectorAll('*');
+          for (const el of idElements) {
+            const text = el.textContent || '';
+            // 匹配商品ID格式（通常是一串数字）
+            const match = text.match(/商品ID[：:\s]*(\d{10,})/);
+            if (match) {
+              return match[1];
+            }
+          }
+          return null;
+        });
+
+        if (productIdOnPage) {
+          ctx.logger.success(`✅ 商品发布成功！商品ID: ${productIdOnPage}`);
         }
+
+        submitResult = {
+          status: 'success',
+          message: '商品提交成功，页面已跳转',
+          productId: productIdOnPage
+        };
+        break;
+      }
+
+      // 检查页面中是否有"商品提交成功"的文字
+      const successText = await page.evaluate(() => {
+        const body = document.body ? document.body.innerText : '';
+        return body.includes('商品提交成功') || body.includes('发布成功');
+      });
+
+      if (successText) {
+        submitResult = {
+          status: 'success',
+          message: '检测到成功提示'
+        };
+        break;
       }
 
       // 检查是否有失败提示
@@ -221,16 +260,6 @@ const step13 = async (ctx) => {
         }
       }
 
-      // 检查页面URL是否跳转
-      const currentUrl = page.url();
-      if (currentUrl.includes('success') || currentUrl.includes('result')) {
-        submitResult = {
-          status: 'success',
-          message: '页面已跳转到结果页'
-        };
-        break;
-      }
-
       await page.waitForTimeout(1000);
     }
 
@@ -239,6 +268,39 @@ const step13 = async (ctx) => {
         status: 'unknown',
         message: '提交结果未知，请手动检查'
       };
+    }
+
+    // 步骤5：处理成功页面（关闭或返回）
+    if (submitResult.status === 'success') {
+      ctx.logger.info('\n[步骤5] 处理成功页面');
+
+      // 等待几秒让用户看到成功信息
+      ctx.logger.info('等待3秒显示成功信息...');
+      await page.waitForTimeout(3000);
+
+      // 尝试关闭当前页面或返回到发布页面
+      const currentUrl = page.url();
+
+      if (currentUrl.includes('success') || currentUrl.includes('result')) {
+        ctx.logger.info('准备关闭成功页面，返回到发布流程...');
+
+        // 方法1：尝试点击"继续发布"按钮（如果存在）
+        const continueButton = await page.$('button:has-text("继续发布"), a:has-text("继续发布")');
+        if (continueButton) {
+          await continueButton.click();
+          ctx.logger.info('✅ 点击了"继续发布"按钮');
+          await page.waitForTimeout(2000);
+        } else {
+          // 方法2：导航回发布页面
+          const publishUrl = 'https://item.upload.taobao.com/sell/v2/publish.htm';
+          ctx.logger.info(`导航回发布页面: ${publishUrl}`);
+          await page.goto(publishUrl, { waitUntil: 'domcontentloaded' });
+        }
+
+        // 标记可以开始下一个循环
+        ctx.readyForNextCycle = true;
+        ctx.logger.success('✅ 已准备好开始下一个商品的发布流程');
+      }
     }
 
     // 步骤5-7：暂时跳过（不需要获取商品ID、保存截图、更新飞书状态）
