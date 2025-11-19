@@ -54,8 +54,36 @@ const step0 = async (ctx) => {
       await processRecord(record, ctx);
     } else {
       // 获取所有待发布记录
-      const records = await feishuClient.getAllRecords();
+      let records = await feishuClient.getAllRecords();
       ctx.logger.info(`找到 ${records.length} 条待发布记录`);
+
+      // 根据品牌筛选
+      const brandField = process.env.FEISHU_BRAND_FIELD || '品牌';
+      if (ctx.options && ctx.options.brand) {
+        const targetBrand = ctx.options.brand;
+        records = records.filter(r => {
+          const brandValue = r.fields[brandField];
+          if (Array.isArray(brandValue)) {
+            return brandValue.some(b => (b.text || b) === targetBrand);
+          }
+          return (brandValue?.text || brandValue) === targetBrand;
+        });
+        ctx.logger.info(`按品牌"${targetBrand}"筛选后剩余 ${records.length} 条记录`);
+      }
+
+      // 根据品类筛选
+      const categoryField = process.env.FEISHU_CATEGORY_FIELD || '品类';
+      if (ctx.options && ctx.options.category) {
+        const targetCategory = ctx.options.category;
+        records = records.filter(r => {
+          const categoryValue = r.fields[categoryField];
+          if (Array.isArray(categoryValue)) {
+            return categoryValue.some(c => (c.text || c) === targetCategory);
+          }
+          return (categoryValue?.text || categoryValue) === targetCategory;
+        });
+        ctx.logger.info(`按品类"${targetCategory}"筛选后剩余 ${records.length} 条记录`);
+      }
 
       if (records.length === 0) {
         ctx.logger.info('没有待发布的商品');
@@ -144,41 +172,46 @@ async function processRecord(record, ctx) {
     currentStatus = checkingValue;
   }
 
-  // 临时强制执行查重（用于测试）
-  ctx.logger.info(`🔍 强制执行查重测试（当前状态: ${currentStatus}）...`);
+  // 根据当前状态决定是否执行查重
+  if (currentStatus === checkingValue) {
+    // 状态为"待检测"时，执行查重
+    ctx.logger.info(`🔍 当前状态为"${checkingValue}"，执行查重检查...`);
 
-  // 立即执行查重
-  try {
-    // 检查商品是否已存在
-    const exists = await checkProductExists(productId);
+    try {
+      // 检查商品是否已存在
+      const exists = await checkProductExists(productId);
 
-    if (exists) {
-      // 商品已存在，更新状态为"已上传到淘宝"
-      ctx.logger.info(`✅ 商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
+      if (exists) {
+        // 商品已存在，更新状态为"已上传到淘宝"
+        ctx.logger.info(`✅ 商品 ${productId} 已存在于淘宝，更新状态为"${doneValue}"`);
+        await feishuClient.updateRecord(record_id, {
+          [statusField]: doneValue
+        });
+
+        // 更新步骤状态并跳过后续步骤
+        updateStepStatus(productId, 0, 'done');
+        ctx.logger.success('✅ 商品已存在，跳过上传流程');
+        return;
+      } else {
+        // 商品不存在，更新状态为"待上传"
+        ctx.logger.info(`❌ 商品 ${productId} 不存在于淘宝，更新状态为"${pendingValue}"`);
+        await feishuClient.updateRecord(record_id, {
+          [statusField]: pendingValue
+        });
+        // 更新本地状态，继续处理
+        currentStatus = pendingValue;
+      }
+    } catch (checkError) {
+      // 查重异常，更新错误状态
+      ctx.logger.error(`查重失败: ${checkError.message}`);
       await feishuClient.updateRecord(record_id, {
-        [statusField]: doneValue
+        [statusField]: errorValue
       });
-
-      // 更新步骤状态并跳过后续步骤
-      updateStepStatus(productId, 0, 'done');
-      ctx.logger.success('✅ 商品已存在，跳过上传流程');
-      return;
-    } else {
-      // 商品不存在，更新状态为"待上传"
-      ctx.logger.info(`❌ 商品 ${productId} 不存在于淘宝，更新状态为"${pendingValue}"`);
-      await feishuClient.updateRecord(record_id, {
-        [statusField]: pendingValue
-      });
-      // 更新本地状态，继续处理
-      currentStatus = pendingValue;
+      throw new Error(`查重失败: ${checkError.message}`);
     }
-  } catch (checkError) {
-    // 查重异常，更新错误状态
-    ctx.logger.error(`查重失败: ${checkError.message}`);
-    await feishuClient.updateRecord(record_id, {
-      [statusField]: errorValue
-    });
-    throw new Error(`查重失败: ${checkError.message}`);
+  } else if (currentStatus === pendingValue) {
+    // 状态为"待上传"时，跳过查重，直接进入处理流程
+    ctx.logger.info(`📦 当前状态为"${pendingValue}"，跳过查重，直接进入上传流程...`);
   }
 
   /*

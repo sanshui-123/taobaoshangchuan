@@ -217,12 +217,25 @@ class FeishuClient {
 
   /**
    * 获取所有记录（带筛选）
+   * 支持 FEISHU_TARGET_STATUS 环境变量指定多个状态，用逗号分隔
+   * 例如：FEISHU_TARGET_STATUS="待检测,待上传"
    */
   async getAllRecords() {
+    // 解析目标状态列表
+    const targetStatusEnv = process.env.FEISHU_TARGET_STATUS;
+    let targetStatuses;
+
+    if (targetStatusEnv) {
+      // 支持逗号分隔的多个状态
+      targetStatuses = targetStatusEnv.split(',').map(s => s.trim()).filter(s => s);
+    } else {
+      // 默认只获取"待检测"状态
+      targetStatuses = [process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测'];
+    }
+
     // 先尝试使用 API 过滤，如果失败则回退到本地过滤
     try {
-      const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
-      const response = await this.getRecords(1000, [checkingValue]);
+      const response = await this.getRecords(1000, targetStatuses);
       return response.records || response.items || [];
     } catch (error) {
       // 如果 API 过滤失败，回退到获取所有记录并在本地过滤
@@ -230,10 +243,9 @@ class FeishuClient {
         this.logger?.warn?.('API 过滤失败，回退到本地过滤');
         const response = await this.getRecords(1000, null);
         const allRecords = response.records || response.items || [];
-        const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
         return allRecords.filter(record => {
           const statusValue = record.fields[process.env.FEISHU_STATUS_FIELD || '上传状态'];
-          return statusValue === checkingValue;
+          return targetStatuses.includes(statusValue);
         });
       }
       throw error;

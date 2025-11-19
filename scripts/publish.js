@@ -63,7 +63,9 @@ program
   })
   .option('--dry-run', '试运行模式，只打印要执行的步骤')
   .option('--verbose', '详细日志输出')
-  .option('--screenshot', '每个步骤完成后自动截图');
+  .option('--screenshot', '每个步骤完成后自动截图')
+  .option('--brand <name>', '只处理指定品牌')
+  .option('--category <name>', '只处理指定品类');
 
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
@@ -168,7 +170,8 @@ async function runSteps(options) {
   const sharedContext = {
     productId: productId || null,  // 自动模式下初始为 null
     taskCache,
-    stepStatus
+    stepStatus,
+    options  // 传递命令行参数（包括 brand、category 等筛选条件）
   };
 
   // 辅助函数：解析当前真实的 productId
