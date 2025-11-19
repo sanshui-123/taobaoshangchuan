@@ -152,6 +152,8 @@ const step5 = async (ctx) => {
       ctx.logger.warn('  ⚠️  检测到原生文件对话框，自动取消...');
       // 取消文件选择器（不选择任何文件）
       await fileChooser.setFiles([]);
+      // 双保险：按 Escape 确保关闭
+      await page.keyboard.press('Escape');
       ctx.logger.info('  ✅ 原生文件对话框已关闭');
     };
     page.once('filechooser', fileChooserHandler);
