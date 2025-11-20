@@ -395,8 +395,7 @@ const step13 = async (ctx) => {
       const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
 
       const updateFields = {
-        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? doneValue : errorValue,
-        [process.env.FEISHU_ERROR_LOG_FIELD || 'error_log']: submitResult.message
+        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? doneValue : errorValue
       };
 
       if (taobaoProductId) {
