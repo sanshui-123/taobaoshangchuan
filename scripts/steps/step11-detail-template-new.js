@@ -237,12 +237,45 @@ const step11Detail = async (ctx) => {
       ctx.logger.info(`  可用字段: ${Object.keys(productData).join(', ')}`);
     }
 
-    // ==================== 步骤5.5：确认光标位置（光标已在文案末尾/图片前） ====================
-    ctx.logger.info('\n[步骤5.5] 确认光标位置');
+    // ==================== 步骤5.5：重新定位到模板图片前（确保图片正确插入） ====================
+    ctx.logger.info('\n[步骤5.5] 重新定位光标到模板图片前');
 
-    // 光标已经在正确位置（文案和尺码表后面，图片前面）
-    // 不需要额外处理，直接进入下一步插入图片
-    ctx.logger.info('  ✅ 光标已在文案末尾，准备插入图片');
+    // 文案和尺码表已插入在图片上方
+    // 现在需要重新定位到模板第一张图片前，确保后续插入的商品图片在正确位置
+    try {
+      // 在编辑弹窗中找到第一张图片（模板图片）
+      const dialog = page.locator('.next-dialog-body [contenteditable="true"]').first();
+      const firstImage = dialog.locator('img').first();
+
+      if (await firstImage.isVisible({ timeout: 2000 })) {
+        ctx.logger.info('  ✅ 找到模板第一张图片');
+
+        // hover到图片
+        await firstImage.hover();
+
+        // 获取图片坐标
+        const box = await firstImage.boundingBox();
+        if (box) {
+          // 在图片左侧点击（左边5px，下边5px）
+          await page.mouse.click(box.x - 5, box.y + 5);
+          ctx.logger.info('  ✅ 点击了图片左侧位置');
+
+          // 按Enter和ArrowUp预留空行，确保光标在正确位置
+          await page.keyboard.press('Enter');
+          await page.keyboard.press('ArrowUp');
+
+          ctx.logger.info('  ✅ 光标已定位到模板图片前，准备插入商品图片');
+        } else {
+          ctx.logger.warn('  ⚠️ 无法获取图片坐标，使用备用方案');
+          await firstImage.click();
+          await page.keyboard.press('ArrowLeft');
+        }
+      } else {
+        ctx.logger.warn('  ⚠️ 未找到模板图片，光标保持在文案末尾');
+      }
+    } catch (e) {
+      ctx.logger.warn(`  ⚠️ 重新定位失败: ${e.message}，光标保持当前位置`);
+    }
 
     // ==================== 步骤6：点击图像按钮进入素材库 ====================
     ctx.logger.info('\n[步骤6] 点击图像按钮进入素材库');
