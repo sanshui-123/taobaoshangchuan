@@ -247,11 +247,16 @@ const step13 = async (ctx) => {
         break;
       }
 
-      // 检查是否有失败提示
-      const errorMessage = await page.$('.error-message, .toast-error, [class*="error"]');
+      // 检查是否有失败提示（排除优化建议面板的误判）
+      const errorMessage = await page.$('.error-message, .toast-error');
       if (errorMessage) {
         const messageText = await errorMessage.textContent();
-        if (messageText && (messageText.includes('失败') || messageText.includes('错误'))) {
+        // 只有明确的失败提示才算失败，排除"错误(0)"这种优化面板
+        if (messageText && (
+          messageText.includes('提交失败') ||
+          messageText.includes('发布失败') ||
+          messageText.includes('操作失败')
+        )) {
           submitResult = {
             status: 'failed',
             message: messageText.trim()
