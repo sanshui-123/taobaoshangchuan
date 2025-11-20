@@ -250,29 +250,110 @@ async function runSteps(options) {
     saveTaskCache(currentProductId, currentCache);
   };
 
-  // 执行步骤
-  for (const stepId of stepsToRun) {
-    try {
-      await beforeStep(stepId);
+  // 阶段定义
+  const PHASE_A_END = 3;   // 阶段 A: Step 0-3 (取单、下载、翻译、登录)
+  const PHASE_B_START = 4; // 阶段 B: Step 4-14 (打开发布页到提交成功)
+  const PHASE_B_END = 14;  // 阶段 B 结束于提交商品
 
-      const ctx = createStepContext(stepId);
-      // 合并共享上下文，保留之前步骤设置的属性
-      Object.assign(ctx, sharedContext);
-      await ctx.runStep(stepId);
-      // 更新共享上下文，保存当前步骤设置的属性
-      Object.assign(sharedContext, { page: ctx.page, page1: ctx.page1, storagePath: ctx.storagePath });
+  // 执行单个步骤的辅助函数
+  const executeStep = async (stepId) => {
+    await beforeStep(stepId);
 
-      // Step0 执行完成后，提取真实的 productId
-      if (stepId === 0 && ctx.productId && ctx.productId !== tempProductId) {
-        sharedContext.productId = ctx.productId;
-        console.log(`\n✅ 自动取单成功 - ProductID: ${ctx.productId}`);
+    const ctx = createStepContext(stepId);
+    // 合并共享上下文，保留之前步骤设置的属性
+    Object.assign(ctx, sharedContext);
+    await ctx.runStep(stepId);
+    // 更新共享上下文，保存当前步骤设置的属性
+    Object.assign(sharedContext, { page: ctx.page, page1: ctx.page1, storagePath: ctx.storagePath });
+
+    // Step0 执行完成后，提取真实的 productId
+    if (stepId === 0 && ctx.productId && ctx.productId !== tempProductId) {
+      sharedContext.productId = ctx.productId;
+      console.log(`\n✅ 自动取单成功 - ProductID: ${ctx.productId}`);
+    }
+
+    await afterStep(stepId, 'done');
+  };
+
+  // 阶段执行函数（带重试）
+  const runPhase = async (phaseName, phaseSteps, maxRetries = 1) => {
+    if (phaseSteps.length === 0) return;
+
+    let retryCount = 0;
+
+    while (retryCount <= maxRetries) {
+      try {
+        // 如果是重试，打印提示
+        if (retryCount > 0) {
+          console.log(`\n🔄 正在重新执行阶段 ${phaseName}（第 ${retryCount} 次重试）`);
+          console.log(`   重试步骤: ${phaseSteps.join(', ')}`);
+        }
+
+        // 执行阶段内所有步骤
+        for (const stepId of phaseSteps) {
+          await executeStep(stepId);
+        }
+
+        // 成功完成，退出重试循环
+        return;
+      } catch (error) {
+        const failedStep = phaseSteps.find(s => stepStatus[s] === 'failed') || phaseSteps[phaseSteps.length - 1];
+        await afterStep(failedStep, 'failed', error);
+
+        if (retryCount < maxRetries) {
+          retryCount++;
+          console.log(`\n⚠️  阶段 ${phaseName} 执行失败（步骤 ${failedStep}），准备重试...`);
+
+          // 重置阶段内所有步骤状态为 pending
+          for (const stepId of phaseSteps) {
+            stepStatus[stepId] = 'pending';
+          }
+        } else {
+          console.error(`\n💥 阶段 ${phaseName} 重试 ${maxRetries} 次后仍然失败，终止流程`);
+          throw error;
+        }
       }
+    }
+  };
 
-      await afterStep(stepId, 'done');
+  // 根据 stepsToRun 划分阶段
+  const phaseASteps = stepsToRun.filter(s => s <= PHASE_A_END);
+  const phaseBSteps = stepsToRun.filter(s => s >= PHASE_B_START && s <= PHASE_B_END);
+  const finalSteps = stepsToRun.filter(s => s > PHASE_B_END); // Step 15 日志通知
+
+  // 执行阶段 A（如果有步骤在该阶段）
+  if (phaseASteps.length > 0) {
+    console.log(`\n📦 阶段 A: 准备工作 (步骤 ${phaseASteps.join(', ')})`);
+    try {
+      await runPhase('A', phaseASteps, 1);
     } catch (error) {
-      await afterStep(stepId, 'failed', error);
-      console.error(`\n💥 步骤 ${stepId} 执行失败，终止流程`);
+      console.error(`\n💥 阶段 A 执行失败，终止流程`);
       process.exit(1);
+    }
+  }
+
+  // 执行阶段 B（如果有步骤在该阶段）
+  if (phaseBSteps.length > 0) {
+    console.log(`\n📦 阶段 B: 发布流程 (步骤 ${phaseBSteps.join(', ')})`);
+    try {
+      await runPhase('B', phaseBSteps, 1);
+    } catch (error) {
+      console.error(`\n💥 阶段 B 执行失败，终止流程`);
+      process.exit(1);
+    }
+  }
+
+  // 执行最终步骤（Step 15 日志通知，不重试）
+  if (finalSteps.length > 0) {
+    console.log(`\n📦 最终步骤: 日志汇总 (步骤 ${finalSteps.join(', ')})`);
+    for (const stepId of finalSteps) {
+      try {
+        await executeStep(stepId);
+      } catch (error) {
+        await afterStep(stepId, 'failed', error);
+        console.error(`\n💥 步骤 ${stepId} 执行失败，终止流程`);
+        process.exit(1);
+      }
     }
   }
 
