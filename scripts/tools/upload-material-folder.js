@@ -917,9 +917,14 @@ async function uploadImages(productId) {
 
     const fileChooserHandler = async (fileChooser) => {
       log('📂 检测到文件选择器，直接选择本地文件...', 'info');
-      // 直接设置本地文件列表（而不是取消）
+      // 直接设置本地文件列表
       await fileChooser.setFiles(filePaths);
       log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
+      // 双保险：连续发送 ESC 强制关闭 Finder
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Escape');
+      log('✅ 已强制关闭文件对话框', 'success');
     };
     page.once('filechooser', fileChooserHandler);
 
