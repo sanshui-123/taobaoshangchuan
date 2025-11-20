@@ -420,6 +420,12 @@ const step13 = async (ctx) => {
       // taobaoProductId, taobaoUrl, screenshot 暂时不需要
     };
 
+    // 标记步骤12（提交商品）为完成
+    if (submitResult.status === 'success') {
+      taskCache.stepStatus = taskCache.stepStatus || {};
+      taskCache.stepStatus[12] = 'done';
+    }
+
     saveTaskCache(productId, taskCache);
 
     // 输出总结

@@ -186,7 +186,8 @@ function generateExecutionReport(data) {
   }
 
   const completedSteps = steps.filter(s => s.completed).length;
-  const overallStatus = completedSteps === 14 && submitResults?.status === 'success' ? 'success' : 'failed';
+  // 以实际提交结果为准判断成功，而不是仅看完成步骤数
+  const overallStatus = submitResults?.status === 'success' ? 'success' : 'failed';
 
   return {
     productId: productId,
