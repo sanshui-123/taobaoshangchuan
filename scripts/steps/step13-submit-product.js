@@ -329,9 +329,7 @@ const step13 = async (ctx) => {
         [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? doneValue : errorValue
       };
 
-      if (taobaoProductId) {
-        updateFields[process.env.FEISHU_URL_FIELD || '商品链接'] = `https://item.taobao.com/item.htm?id=${taobaoProductId}`;
-      }
+      // 不再覆盖飞书原始商品链接，若需要淘宝链接可单独添加字段
 
       try {
         await feishuClient.updateRecord(feishuRecordId, updateFields);
