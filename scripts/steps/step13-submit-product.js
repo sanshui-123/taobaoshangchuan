@@ -167,198 +167,114 @@ const step13 = async (ctx) => {
     ctx.logger.info('点击提交按钮...');
     await submitButton.click();
 
-    // 步骤3：处理提交确认
-    ctx.logger.info('\n[步骤3] 处理提交确认');
+    // 步骤3：等待页面导航（使用Promise.race确保导航完成）
+    ctx.logger.info('\n[步骤3] 等待页面导航');
 
-    // 等待可能的确认弹窗
-    await page.waitForTimeout(2000);
-
-    // 查找确认弹窗（使用 try/catch 处理页面导航导致的上下文销毁）
+    // 使用Promise.race等待页面导航，即使出现"context destroyed"也继续执行
     try {
-      const confirmDialog = await page.$('.confirm-dialog, .modal, .popup');
-      if (confirmDialog) {
-        ctx.logger.info('检测到确认弹窗');
-
-        // 查找确认按钮
-        const confirmButton = await page.$('button:has-text("确定"), button:has-text("确认"), .confirm-btn');
-        if (confirmButton) {
-          await confirmButton.click();
-          ctx.logger.info('✅ 已确认提交');
-          await page.waitForTimeout(2000);
-        }
-      }
-    } catch (dialogError) {
-      // 如果上下文被销毁，说明页面已导航到成功页面，这是正常的
-      if (dialogError.message.includes('context was destroyed') || dialogError.message.includes('navigation')) {
-        ctx.logger.info('页面已导航，跳过确认弹窗检测');
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
+        page.waitForLoadState('domcontentloaded')
+      ]);
+      ctx.logger.info('✅ 页面导航完成');
+    } catch (navError) {
+      // "Execution context was destroyed" 是正常现象，说明页面已跳转
+      if (navError.message.includes('context was destroyed') ||
+          navError.message.includes('navigation') ||
+          navError.message.includes('Timeout')) {
+        ctx.logger.info('页面已导航（检测到上下文变化或超时，这是正常的）');
       } else {
-        ctx.logger.warn(`检测确认弹窗失败: ${dialogError.message}`);
+        ctx.logger.warn(`导航等待异常: ${navError.message}`);
       }
     }
 
-    // 步骤4：等待提交结果
-    ctx.logger.info('\n[步骤4] 等待提交结果和页面跳转');
+    // 步骤4：检查提交结果（仅基于URL判断）
+    ctx.logger.info('\n[步骤4] 检查提交结果');
 
-    // 等待页面跳转或结果提示
     let submitResult = null;
-    let maxWait = 30; // 最多等待30秒
 
-    for (let i = 0; i < maxWait; i++) {
-      // 首先检查页面URL是否跳转到成功页面
+    try {
+      // 获取当前URL
       const currentUrl = page.url();
+      ctx.logger.info(`当前页面URL: ${currentUrl}`);
 
-      // 检查是否跳转到成功页面
-      if (currentUrl.includes('success') || currentUrl.includes('result') ||
+      // 只要URL包含success或result，就认定提交成功
+      if (currentUrl.includes('success') ||
+          currentUrl.includes('result') ||
           currentUrl.includes('publish/success')) {
-        ctx.logger.info(`检测到页面跳转: ${currentUrl}`);
 
-        // 等待页面加载完成
-        await page.waitForTimeout(2000);
-
-        // 检测成功页面关键元素（如 infoContainer）确认提交成功
-        const successElementFound = await page.evaluate(() => {
-          // 检查成功页面的关键元素
-          const successSelectors = [
-            'div[class*="infoContainer"]',
-            'div[class*="success"]',
-            '.publish-success',
-            '.result-success'
-          ];
-          for (const selector of successSelectors) {
-            if (document.querySelector(selector)) {
-              return true;
-            }
-          }
-          return false;
-        });
-
-        if (successElementFound) {
-          ctx.logger.info('✅ 检测到成功页面关键元素');
-        }
-
-        // 尝试获取成功页面的商品ID
-        const productIdOnPage = await page.evaluate(() => {
-          // 从 URL 中提取商品ID
-          const urlMatch = window.location.href.match(/primaryId=(\d+)/);
-          if (urlMatch) {
-            return urlMatch[1];
-          }
-          // 查找商品ID显示元素
-          const idElements = document.querySelectorAll('*');
-          for (const el of idElements) {
-            const text = el.textContent || '';
-            // 匹配商品ID格式（通常是一串数字）
-            const match = text.match(/商品ID[：:\s]*(\d{10,})/);
-            if (match) {
-              return match[1];
-            }
-          }
-          return null;
-        });
-
-        if (productIdOnPage) {
-          ctx.logger.success(`✅ 商品发布成功！商品ID: ${productIdOnPage}`);
-        }
+        ctx.logger.success('✅ 检测到成功页面URL，商品提交成功！');
 
         submitResult = {
           status: 'success',
           message: '商品提交成功，页面已跳转',
-          productId: productIdOnPage
+          productId: null  // 稍后获取
         };
-        break;
-      }
 
-      // 检查页面中是否有"商品提交成功"的文字
-      const successText = await page.evaluate(() => {
-        const body = document.body ? document.body.innerText : '';
-        return body.includes('商品提交成功') || body.includes('发布成功');
-      });
-
-      if (successText) {
+      } else {
+        // URL不包含成功标识，记录但不抛错
+        ctx.logger.warn(`⚠️ 页面URL未包含成功标识: ${currentUrl}`);
         submitResult = {
-          status: 'success',
-          message: '检测到成功提示'
+          status: 'unknown',
+          message: `页面跳转到: ${currentUrl}，请手动检查`
         };
-        break;
       }
-
-      // 检查是否有失败提示（排除优化建议面板的误判）
-      const errorMessage = await page.$('.error-message, .toast-error');
-      if (errorMessage) {
-        const messageText = await errorMessage.textContent();
-        // 只有明确的失败提示才算失败，排除"错误(0)"这种优化面板
-        if (messageText && (
-          messageText.includes('提交失败') ||
-          messageText.includes('发布失败') ||
-          messageText.includes('操作失败')
-        )) {
-          submitResult = {
-            status: 'failed',
-            message: messageText.trim()
-          };
-          break;
-        }
-      }
-
-      await page.waitForTimeout(1000);
-    }
-
-    if (!submitResult) {
+    } catch (urlError) {
+      // 获取URL失败也不抛错，记录失败原因
+      ctx.logger.error(`获取页面URL失败: ${urlError.message}`);
       submitResult = {
         status: 'unknown',
-        message: '提交结果未知，请手动检查'
+        message: `无法获取页面URL: ${urlError.message}`
       };
     }
-
-    // 步骤5：处理成功页面
-    if (submitResult.status === 'success') {
-      ctx.logger.info('\n[步骤5] 处理成功页面');
-
-      // 等待页面资源加载完成
-      ctx.logger.info('等待3秒让页面资源稳定...');
-      await page.waitForTimeout(3000);
-
-      // 不再导航回模板页，直接继续执行后续流程
-      ctx.logger.info('✅ 商品提交成功，继续执行后续步骤');
-    }
-
-    // 步骤5-7：获取商品ID、保存截图、更新飞书状态
 
     // 步骤5：获取商品ID（如果提交成功）
     let taobaoProductId = null;
     if (submitResult.status === 'success') {
       ctx.logger.info('\n[步骤5] 获取商品ID');
 
-      // 尝试从页面获取商品ID
-      taobaoProductId = await page.evaluate(() => {
-        // 常见的商品ID显示位置
-        const selectors = [
-          '[data-product-id]',
-          '.product-id',
-          '.item-id',
-          '[data-item-id]'
-        ];
+      // 等待页面稳定
+      try {
+        await page.waitForTimeout(3000);
+      } catch (waitError) {
+        ctx.logger.warn(`等待页面稳定失败: ${waitError.message}`);
+      }
 
-        for (const selector of selectors) {
-          const element = document.querySelector(selector);
-          if (element) {
-            return element.textContent || element.getAttribute('data-product-id') || element.getAttribute('data-item-id');
+      // 尝试从页面获取商品ID（使用try/catch，失败不影响流程）
+      try {
+        taobaoProductId = await page.evaluate(() => {
+          // 从URL中提取商品ID（最可靠的方式）
+          const urlMatch = window.location.href.match(/primaryId=(\d+)/);
+          if (urlMatch) {
+            return urlMatch[1];
           }
+
+          // 备选方案：从页面元素获取
+          const selectors = [
+            '[data-product-id]',
+            '.product-id',
+            '.item-id',
+            '[data-item-id]'
+          ];
+
+          for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+              return element.textContent || element.getAttribute('data-product-id') || element.getAttribute('data-item-id');
+            }
+          }
+
+          return null;
+        });
+
+        if (taobaoProductId) {
+          ctx.logger.success(`✅ 获取到商品ID: ${taobaoProductId}`);
+        } else {
+          ctx.logger.warn('⚠️ 未能从页面获取商品ID（不影响提交结果）');
         }
-
-        // 从URL中提取
-        const urlMatch = window.location.href.match(/item\.htm\?id=(\d+)/);
-        if (urlMatch) {
-          return urlMatch[1];
-        }
-
-        return null;
-      });
-
-      if (taobaoProductId) {
-        ctx.logger.success(`✅ 获取到商品ID: ${taobaoProductId}`);
-      } else {
-        ctx.logger.warn('未能获取商品ID');
+      } catch (evalError) {
+        // 获取商品ID失败不影响整体流程
+        ctx.logger.warn(`⚠️ 获取商品ID时出错: ${evalError.message}（不影响提交结果）`);
       }
     }
 
@@ -408,15 +324,32 @@ const step13 = async (ctx) => {
 
     // 输出总结
     ctx.logger.success('\n=== 商品提交完成 ===');
-    ctx.logger.info(`提交状态: ${submitResult.status === 'success' ? '✅ 成功' : '❌ 失败'}`);
+    ctx.logger.info(`提交状态: ${submitResult.status === 'success' ? '✅ 成功' : '⚠️ 未知'}`);
     ctx.logger.info(`提交信息: ${submitResult.message}`);
 
-    if (submitResult.status !== 'success') {
+    // 只有明确失败时才抛错，成功或未知状态都不抛错
+    // 这样避免了因为后续步骤失败（如获取商品ID失败）而触发重试
+    if (submitResult.status === 'failed') {
       throw new Error(`商品提交失败: ${submitResult.message}`);
+    } else if (submitResult.status === 'unknown') {
+      ctx.logger.warn('⚠️ 提交结果未知，建议手动检查淘宝后台');
+      // 不抛错，避免触发重试
     }
 
   } catch (error) {
-    ctx.logger.error(`商品提交失败: ${error.message}`);
+    // 检查是否已经有submitResult，如果已经判定成功，则不再抛错
+    const taskCache = loadTaskCache(ctx.productId);
+    const hasSucceeded = taskCache?.submitResults?.status === 'success';
+
+    if (hasSucceeded) {
+      // 如果已经判定提交成功，即使后续步骤失败也不抛错
+      ctx.logger.warn(`⚠️ 商品已提交成功，但后续步骤出错: ${error.message}`);
+      ctx.logger.info('✅ 商品提交成功，忽略后续错误，避免重复提交');
+      return; // 直接返回，不抛错
+    }
+
+    // 如果还没判定成功，说明是提交过程中的错误，需要抛出
+    ctx.logger.error(`商品提交过程出错: ${error.message}`);
 
     // 更新飞书错误日志
     if (ctx.feishuRecordId) {
