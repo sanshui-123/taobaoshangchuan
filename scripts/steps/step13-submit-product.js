@@ -274,9 +274,9 @@ const step13 = async (ctx) => {
     if (submitResult.status === 'success') {
       ctx.logger.info('\n[步骤5] 处理成功页面');
 
-      // 等待几秒让用户看到成功信息
-      ctx.logger.info('等待3秒显示成功信息...');
-      await page.waitForTimeout(3000);
+      // 等待页面资源加载完成，避免 race condition
+      ctx.logger.info('等待5秒让页面资源稳定...');
+      await page.waitForTimeout(5000);
 
       // 尝试关闭当前页面或返回到发布页面
       const currentUrl = page.url();
@@ -288,8 +288,23 @@ const step13 = async (ctx) => {
         const templateItemId = process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
         const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
         ctx.logger.info(`🚀 导航回模板发布页: ${directUrl}`);
-        await page.goto(directUrl, { waitUntil: 'domcontentloaded' });
-        ctx.logger.info('✅ 已返回模板发布页，准备处理下一个商品');
+
+        // 使用 try/catch 处理导航错误，避免 race condition 导致的错误
+        try {
+          await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          ctx.logger.info('✅ 已返回模板发布页，准备处理下一个商品');
+        } catch (navError) {
+          ctx.logger.warn(`导航回模板页失败: ${navError.message}，稍等后重试...`);
+          await page.waitForTimeout(3000);
+          try {
+            await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            ctx.logger.info('✅ 重试成功，已返回模板发布页');
+          } catch (retryError) {
+            ctx.logger.warn(`重试导航仍失败: ${retryError.message}，继续执行飞书状态更新...`);
+            // 即使导航失败也不 throw，继续执行后续的飞书状态更新
+          }
+        }
+
         await page.waitForTimeout(2000);
 
         // 标记可以开始下一个循环
