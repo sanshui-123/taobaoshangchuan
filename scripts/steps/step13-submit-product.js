@@ -167,24 +167,48 @@ const step13 = async (ctx) => {
     ctx.logger.info('点击提交按钮...');
     await submitButton.click();
 
-    // 步骤3：等待页面导航（使用Promise.race确保导航完成）
-    ctx.logger.info('\n[步骤3] 等待页面导航');
+    // 步骤3：等待页面跳转到成功页面（关键修复：等待URL包含success）
+    ctx.logger.info('\n[步骤3] 等待页面跳转到成功页面');
 
-    // 使用Promise.race等待页面导航，即使出现"context destroyed"也继续执行
+    let reachedSuccessPage = false;
+
+    // 方法1：直接等待URL包含success（最可靠）
     try {
-      await Promise.race([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
-        page.waitForLoadState('domcontentloaded')
-      ]);
-      ctx.logger.info('✅ 页面导航完成');
-    } catch (navError) {
-      // "Execution context was destroyed" 是正常现象，说明页面已跳转
-      if (navError.message.includes('context was destroyed') ||
-          navError.message.includes('navigation') ||
-          navError.message.includes('Timeout')) {
-        ctx.logger.info('页面已导航（检测到上下文变化或超时，这是正常的）');
-      } else {
-        ctx.logger.warn(`导航等待异常: ${navError.message}`);
+      await page.waitForURL('**/success.htm**', { timeout: 30000 });
+      ctx.logger.success('✅ 已跳转到成功页面（URL包含success.htm）');
+      reachedSuccessPage = true;
+    } catch (urlWaitError) {
+      ctx.logger.warn(`waitForURL超时，尝试循环检查URL...`);
+
+      // 方法2：循环检查URL，等待跳转到成功页面
+      let checkCount = 0;
+      const maxChecks = 30; // 最多检查30次，每次1秒
+
+      while (checkCount < maxChecks) {
+        await page.waitForTimeout(1000);
+
+        try {
+          const currentUrl = page.url();
+
+          if (currentUrl.includes('success')) {
+            ctx.logger.success(`✅ 检测到成功页面（第${checkCount + 1}次检查）`);
+            reachedSuccessPage = true;
+            break;
+          }
+
+          checkCount++;
+          if (checkCount % 5 === 0) {
+            ctx.logger.info(`等待跳转（${checkCount}/${maxChecks}）...`);
+          }
+        } catch (urlError) {
+          // 获取URL可能因为页面跳转而失败，继续尝试
+          ctx.logger.warn(`获取URL失败（第${checkCount}次），继续等待...`);
+          checkCount++;
+        }
+      }
+
+      if (!reachedSuccessPage) {
+        ctx.logger.warn(`等待${maxChecks}秒后仍未检测到成功页面`);
       }
     }
 
