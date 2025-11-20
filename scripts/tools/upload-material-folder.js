@@ -909,16 +909,17 @@ async function uploadImages(productId) {
       throw new Error('未找到上传文件按钮');
     }
 
-    // 🔧 修复：设置 filechooser 事件监听器，拦截可能出现的原生文件对话框
+    // 🔧 修复：设置 filechooser 事件监听器，直接选择本地文件
     // 当点击上传按钮时，如果触发了 <input type="file">，会弹出系统文件选择器（Finder）
-    // 使用监听器来自动取消这个对话框，避免它一直挂在前面
+    // 使用监听器来直接设置文件，避免 Finder 一直挂在前面
+    const filePaths = localData.files.map(file => path.join(localData.localFolder, file));
+    log(`📁 准备上传 ${filePaths.length} 个本地文件`);
+
     const fileChooserHandler = async (fileChooser) => {
-      log('⚠️ 检测到原生文件对话框，自动关闭...', 'warning');
-      // 取消文件选择器（不选择任何文件）
-      await fileChooser.setFiles([]);
-      // 双保险：按 Escape 确保关闭
-      await page.keyboard.press('Escape');
-      log('✅ 原生文件对话框已关闭', 'success');
+      log('📂 检测到文件选择器，直接选择本地文件...', 'info');
+      // 直接设置本地文件列表（而不是取消）
+      await fileChooser.setFiles(filePaths);
+      log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
     };
     page.once('filechooser', fileChooserHandler);
 
