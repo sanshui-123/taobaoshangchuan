@@ -369,6 +369,9 @@ async function runSteps(options) {
   if (process.env.NODE_ENV === 'development') {
     console.log('\n📌 开发模式：保持浏览器窗口打开，按 Ctrl+C 退出');
     // 不退出，让进程继续运行以保持浏览器
+  } else {
+    // Production模式下，处理完成后退出，让批量脚本继续下一个商品
+    process.exit(0);
   }
 }
 
