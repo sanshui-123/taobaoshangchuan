@@ -747,6 +747,9 @@ async function uploadImages(productId) {
 
     if (!hasError) {
       log('✅ 文件夹创建成功', 'success');
+    } else {
+      // 文件夹已存在，需要先进入并清空旧图片
+      log('📂 文件夹已存在，将清空旧图片后重新上传...');
     }
 
     // 🔴 关键步骤：双击进入新创建的文件夹
@@ -790,6 +793,85 @@ async function uploadImages(productId) {
         log(`✅ 成功进入文件夹: ${productId}`, 'success');
       } else {
         log('⚠️ 未确认进入文件夹，但继续上传', 'warning');
+      }
+
+      // 如果文件夹已存在，清空旧图片
+      if (hasError) {
+        log('🗑️ 开始清空文件夹内的旧图片...');
+        try {
+          // 等待图片列表加载
+          await page.waitForTimeout(2000);
+
+          // 查找全选复选框
+          const selectAllSelectors = [
+            'input[type="checkbox"][aria-label*="全选"]',
+            '.select-all-checkbox',
+            'th input[type="checkbox"]',
+            '.next-table-header input[type="checkbox"]'
+          ];
+
+          let selectAllCheckbox = null;
+          for (const selector of selectAllSelectors) {
+            try {
+              selectAllCheckbox = await page.$(selector);
+              if (selectAllCheckbox) {
+                logVerbose(`找到全选复选框: ${selector}`);
+                break;
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+
+          if (selectAllCheckbox) {
+            // 点击全选
+            await selectAllCheckbox.click();
+            log('✅ 已全选所有图片');
+            await page.waitForTimeout(1000);
+
+            // 查找删除按钮
+            const deleteButtonSelectors = [
+              'button:has-text("删除")',
+              'button:has-text("批量删除")',
+              '[class*="delete"]:has-text("删除")'
+            ];
+
+            let deleteButton = null;
+            for (const selector of deleteButtonSelectors) {
+              try {
+                deleteButton = await page.$(selector);
+                if (deleteButton && await deleteButton.isVisible()) {
+                  logVerbose(`找到删除按钮: ${selector}`);
+                  break;
+                }
+              } catch (e) {
+                continue;
+              }
+            }
+
+            if (deleteButton) {
+              await deleteButton.click();
+              log('✅ 已点击删除按钮');
+              await page.waitForTimeout(1000);
+
+              // 确认删除对话框
+              const confirmButton = await page.$('button:has-text("确定"), button:has-text("确认")');
+              if (confirmButton) {
+                await confirmButton.click();
+                log('✅ 已确认删除');
+                await page.waitForTimeout(3000);
+              }
+
+              log('✅ 旧图片清空完成', 'success');
+            } else {
+              log('⚠️ 未找到删除按钮，可能文件夹为空', 'warning');
+            }
+          } else {
+            log('⚠️ 未找到全选复选框，可能文件夹为空', 'warning');
+          }
+        } catch (clearError) {
+          log(`⚠️ 清空旧图片失败: ${clearError.message}，继续上传新图片`, 'warning');
+        }
       }
     } else {
       log('⚠️ 未找到新创建的文件夹元素，但继续上传', 'warning');
