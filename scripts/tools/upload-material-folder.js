@@ -523,6 +523,19 @@ async function uploadImages(productId) {
     }
     log(`本地验证通过: 找到 ${localData.files.length} 个图片文件`, 'success');
 
+    // 步骤3.5: 确保从素材库根目录开始（避免停留在上一个商品的文件夹）
+    log('📂 正在进入素材库根目录...', 'info');
+    try {
+      await page.goto('https://myseller.taobao.com/home.htm/material-center/mine-material/sucai-tu', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+      await page.waitForTimeout(2000);
+      log(`📂 已进入素材库根目录，准备处理 ${productId}`, 'success');
+    } catch (navError) {
+      log(`导航到素材库根目录失败: ${navError.message}，继续尝试...`, 'warning');
+    }
+
     // 步骤4: 检查文件夹是否已存在并创建
     log('步骤4: 检查并创建商品文件夹...');
 
