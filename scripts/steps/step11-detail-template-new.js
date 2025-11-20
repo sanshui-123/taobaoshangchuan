@@ -116,51 +116,41 @@ const step11Detail = async (ctx) => {
       const firstImage = page.getByLabel('编辑模块').locator('img').first();
 
       if (await firstImage.isVisible({ timeout: 2000 })) {
-        ctx.logger.info('  找到第一张图片');
+        ctx.logger.info('  ✅ 找到第一张图片');
 
         // 先悬停在图片上
         await firstImage.hover();
-        await page.waitForTimeout(100);
 
-        // 点击图片左上角位置，将光标放在图片左侧
-        // 使用相对位置点击，确保在图片左边
+        // 获取图片坐标
         const box = await firstImage.boundingBox();
         if (box) {
-          // 点击图片左边缘稍微偏左的位置
-          await page.mouse.click(box.x - 5, box.y + 10);
-          ctx.logger.info('  点击了图片左侧位置');
+          // 在图片左侧点击（左边5px，下边5px的位置）
+          await page.mouse.click(box.x - 5, box.y + 5);
+          ctx.logger.info('  ✅ 点击了图片左侧位置');
         } else {
           // 备用方案：直接点击图片然后按左箭头
           await firstImage.click();
           await page.keyboard.press('ArrowLeft');
-          ctx.logger.info('  点击图片后按左箭头');
+          ctx.logger.info('  ℹ️ 使用备用方案：点击图片后按左箭头');
         }
 
-        await page.waitForTimeout(200);
+        // 按回车创建新行，在图片上方插入内容
+        await page.keyboard.press('Enter');
+        // 按上箭头回到新创建的空行
+        await page.keyboard.press('ArrowUp');
 
-        // 按左箭头确保光标在图片左侧
-        await page.keyboard.press('ArrowLeft');
-        await page.waitForTimeout(100);
-
-        ctx.logger.info('  ✅ 已定位到图片左侧');
+        ctx.logger.info('  ✅ 已在图片上方预留空行，光标就绪');
       } else {
         // 如果没找到图片，使用Ctrl+Home定位到文档开头
         ctx.logger.info('  ℹ️ 未找到图片，使用文档开头位置');
         await page.keyboard.press('Control+Home');
-        await page.waitForTimeout(100);
       }
     } catch (e) {
-      ctx.logger.error(`  定位图片失败: ${e.message}`);
+      ctx.logger.error(`  ⚠️ 定位图片失败: ${e.message}`);
       // 备用方案：定位到文档开头
       await page.keyboard.press('Control+Home');
       ctx.logger.info('  ℹ️ 使用文档开头位置作为备选');
     }
-
-    // 按回车创建新行，在图片上方插入内容
-    await page.keyboard.press('Enter');
-    // 按上箭头回到新创建的空行
-    await page.keyboard.press('ArrowUp');
-    await page.waitForTimeout(200);
 
     // ==================== 步骤4：插入详情页文字 ====================
     ctx.logger.info('\n[步骤4] 插入详情页文字');
@@ -247,40 +237,12 @@ const step11Detail = async (ctx) => {
       ctx.logger.info(`  可用字段: ${Object.keys(productData).join(', ')}`);
     }
 
-    // ==================== 步骤5.5：强化光标重定位（确保图文分离） ====================
-    ctx.logger.info('\n[步骤5.5] 强化光标重定位确保图文分离');
+    // ==================== 步骤5.5：确认光标位置（光标已在文案末尾/图片前） ====================
+    ctx.logger.info('\n[步骤5.5] 确认光标位置');
 
-    const movedBeforeImage = await page.evaluate(() => {
-      const editable = document.querySelector('.next-dialog-body [contenteditable="true"]');
-      if (!editable) {
-        return false;
-      }
-      const firstImg = editable.querySelector('img');
-      if (!firstImg) {
-        return false;
-      }
-      const range = document.createRange();
-      range.setStartBefore(firstImg);
-      range.collapse(true);
-      const selection = window.getSelection();
-      if (!selection) {
-        return false;
-      }
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return true;
-    });
-
-    if (movedBeforeImage) {
-      await page.waitForTimeout(200);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(200);
-      await page.keyboard.press('ArrowUp');
-      await page.waitForTimeout(200);
-      ctx.logger.info('  ✅ 已将光标定位在图片前的空行');
-    } else {
-      ctx.logger.info('  ℹ️ 未定位到图片，保持当前光标位置');
-    }
+    // 光标已经在正确位置（文案和尺码表后面，图片前面）
+    // 不需要额外处理，直接进入下一步插入图片
+    ctx.logger.info('  ✅ 光标已在文案末尾，准备插入图片');
 
     // ==================== 步骤6：点击图像按钮进入素材库 ====================
     ctx.logger.info('\n[步骤6] 点击图像按钮进入素材库');
