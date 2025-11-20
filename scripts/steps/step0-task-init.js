@@ -172,6 +172,28 @@ async function processRecord(record, ctx) {
     currentStatus = checkingValue;
   }
 
+  // ==================== 库存状态检查：都缺货直接跳过 ====================
+  const stockStatusField = process.env.FEISHU_STOCK_STATUS_FIELD || '库存状态';
+  const outOfStockValue = process.env.FEISHU_OUT_OF_STOCK_VALUE || '都缺货';
+  const skipUploadValue = process.env.FEISHU_SKIP_UPLOAD_VALUE || '缺货无需上传';
+
+  const stockStatus = fields[stockStatusField];
+
+  if (stockStatus === outOfStockValue) {
+    ctx.logger.warn(`📦 检测到库存状态为"${outOfStockValue}"，跳过上传流程`);
+
+    // 更新飞书状态为"缺货无需上传"
+    await feishuClient.updateRecord(record_id, {
+      [statusField]: skipUploadValue
+    });
+
+    ctx.logger.info(`✅ 已更新状态为"${skipUploadValue}"，后续不会再处理此商品`);
+
+    // 标记步骤完成并返回
+    updateStepStatus(productId, 0, 'done');
+    return;
+  }
+
   // 根据当前状态决定是否执行查重
   if (currentStatus === checkingValue) {
     // 状态为"待检测"时，执行查重

@@ -54,7 +54,7 @@ const step11Detail = async (ctx) => {
 
     // 选择"卡-LL="模板
     await page.getByText('卡-LL=').click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);  // 优化：1000ms降到500ms
 
     ctx.logger.info('  ✅ 已选择模板: 卡-LL=');
 
@@ -96,7 +96,7 @@ const step11Detail = async (ctx) => {
 
     await contentImg.scrollIntoViewIfNeeded();
     await contentImg.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);  // 优化：1000ms降到500ms
 
     ctx.logger.info('  ✅ 已打开模板编辑弹窗');
 
@@ -313,7 +313,7 @@ const step11Detail = async (ctx) => {
     }
 
     await imageButton.click();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已打开图像选择弹窗');
 
@@ -349,7 +349,7 @@ const step11Detail = async (ctx) => {
     await folderInput.click();
     await page.waitForTimeout(300);
     await folderInput.fill(productId);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);  // 优化：1000ms降到500ms
 
     // 等待下拉建议出现并点击
     try {
@@ -361,7 +361,7 @@ const step11Detail = async (ctx) => {
       ctx.logger.info('  ℹ️ 尝试备用方案选择文件夹');
       await imageFrame.locator(`:has-text("${productId}")`).first().click();
     }
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info(`  ✅ 已选择文件夹: ${productId}`);
 
@@ -430,7 +430,7 @@ const step11Detail = async (ctx) => {
     }
 
     await imageLibraryConfirmBtn.click({ force: true });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已点击素材库确定按钮');
 
@@ -464,7 +464,7 @@ const step11Detail = async (ctx) => {
     }
 
     await editDialogConfirmBtn.click({ force: true });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);  // 优化：1000ms降到500ms
 
     ctx.logger.info('  ✅ 已点击编辑模块确定按钮，图片已写入编辑器');
 

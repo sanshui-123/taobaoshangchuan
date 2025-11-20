@@ -54,7 +54,7 @@ const step10Crop = async (ctx) => {
     // ==================== 步骤3：等待裁剪完成 ====================
     ctx.logger.info('\n[步骤3] 等待裁剪完成');
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(500);  // 优化：2000ms降到500ms
     ctx.logger.info('  ✅ 裁剪处理完成');
 
     // ==================== 步骤4：保存结果 ====================

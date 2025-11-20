@@ -275,9 +275,9 @@ const step5 = async (ctx) => {
       }
     }
 
-    // 额外等待，确保弹窗内容完全加载
+    // 等待弹窗内容加载（优化：从5秒降到500ms）
     ctx.logger.info('等待弹窗内容加载...');
-    await page.waitForTimeout(5000);  // 从 2 秒增加到 5 秒
+    await page.waitForTimeout(500);
     ctx.logger.success('✅ 弹窗加载完成');
 
     // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
@@ -885,16 +885,16 @@ async function applyFallbackStrategy(page, productId, ctx) {
   ctx.logger.info('应用降级策略：选择所有可见图片');
 
   try {
-    // 重新打开上传对话框
+    // 重新打开上传对话框（优化：2秒降到500ms）
     await page.click('.next-tabs-tab:has-text("素材库")');
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(500);
 
     // 处理素材库页面的广告弹窗
     await closeMaterialCenterPopups(page);
 
     await page.click('.next-tabs-tab:has-text("图片")');
     await page.click('text=上传图片');
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(500);
 
     // 选择所有图片
     const uploadFrame = page.frameLocator('iframe').first();
