@@ -284,18 +284,13 @@ const step13 = async (ctx) => {
       if (currentUrl.includes('success') || currentUrl.includes('result')) {
         ctx.logger.info('准备关闭成功页面，返回到发布流程...');
 
-        // 方法1：尝试点击"继续发布"按钮（如果存在）
-        const continueButton = await page.$('button:has-text("继续发布"), a:has-text("继续发布")');
-        if (continueButton) {
-          await continueButton.click();
-          ctx.logger.info('✅ 点击了"继续发布"按钮');
-          await page.waitForTimeout(2000);
-        } else {
-          // 方法2：导航回发布页面
-          const publishUrl = 'https://item.upload.taobao.com/sell/v2/publish.htm';
-          ctx.logger.info(`导航回发布页面: ${publishUrl}`);
-          await page.goto(publishUrl, { waitUntil: 'domcontentloaded' });
-        }
+        // 直接导航回模板发布页（使用模板商品ID）
+        const templateItemId = process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
+        const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+        ctx.logger.info(`🚀 导航回模板发布页: ${directUrl}`);
+        await page.goto(directUrl, { waitUntil: 'domcontentloaded' });
+        ctx.logger.info('✅ 已返回模板发布页，准备处理下一个商品');
+        await page.waitForTimeout(2000);
 
         // 标记可以开始下一个循环
         ctx.readyForNextCycle = true;
@@ -359,23 +354,28 @@ const step13 = async (ctx) => {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ctx.logger.info(`截图已保存: ${screenshotPath}`);
 
-    // 步骤7：更新飞书状态为"已上传"
+    // 步骤7：更新飞书状态为"已上传到淘宝"
     ctx.logger.info('\n[步骤7] 更新飞书状态');
 
-    if (ctx.feishuRecordId) {
+    // 从 ctx 或 taskCache 中获取飞书记录ID
+    const feishuRecordId = ctx.feishuRecordId || taskCache.feishuRecordId;
+
+    if (feishuRecordId) {
+      const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
+      const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+
       const updateFields = {
-        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? '已上传' : '发布失败',
+        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? doneValue : errorValue,
         [process.env.FEISHU_ERROR_LOG_FIELD || 'error_log']: submitResult.message
       };
 
       if (taobaoProductId) {
         updateFields[process.env.FEISHU_URL_FIELD || '商品链接'] = `https://item.taobao.com/item.htm?id=${taobaoProductId}`;
-        updateFields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'] = taobaoProductId;
       }
 
       try {
-        await feishuClient.updateRecord(ctx.feishuRecordId, updateFields);
-        ctx.logger.success('✅ 飞书状态已更新为"已上传"');
+        await feishuClient.updateRecord(feishuRecordId, updateFields);
+        ctx.logger.success(`✅ 飞书状态已更新为"${doneValue}"`);
       } catch (updateError) {
         ctx.logger.error(`更新飞书状态失败: ${updateError.message}`);
       }

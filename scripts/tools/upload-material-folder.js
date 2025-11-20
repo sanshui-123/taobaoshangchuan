@@ -909,9 +909,25 @@ async function uploadImages(productId) {
       throw new Error('未找到上传文件按钮');
     }
 
+    // 🔧 修复：设置 filechooser 事件监听器，拦截可能出现的原生文件对话框
+    // 当点击上传按钮时，如果触发了 <input type="file">，会弹出系统文件选择器（Finder）
+    // 使用监听器来自动取消这个对话框，避免它一直挂在前面
+    const fileChooserHandler = async (fileChooser) => {
+      log('⚠️ 检测到原生文件对话框，自动关闭...', 'warning');
+      // 取消文件选择器（不选择任何文件）
+      await fileChooser.setFiles([]);
+      // 双保险：按 Escape 确保关闭
+      await page.keyboard.press('Escape');
+      log('✅ 原生文件对话框已关闭', 'success');
+    };
+    page.once('filechooser', fileChooserHandler);
+
     await uploadButton.click();
     log('点击了上传文件按钮', 'success');
     await page.waitForTimeout(2000);
+
+    // 移除监听器（如果没有触发）
+    page.removeListener('filechooser', fileChooserHandler);
 
     // 如果有"批量导入文件"选项，点击它
     try {
