@@ -310,47 +310,16 @@ const step13 = async (ctx) => {
       };
     }
 
-    // 步骤5：处理成功页面（关闭或返回）
+    // 步骤5：处理成功页面
     if (submitResult.status === 'success') {
       ctx.logger.info('\n[步骤5] 处理成功页面');
 
-      // 等待页面资源加载完成，避免 race condition
-      ctx.logger.info('等待5秒让页面资源稳定...');
-      await page.waitForTimeout(5000);
+      // 等待页面资源加载完成
+      ctx.logger.info('等待3秒让页面资源稳定...');
+      await page.waitForTimeout(3000);
 
-      // 尝试关闭当前页面或返回到发布页面
-      const currentUrl = page.url();
-
-      if (currentUrl.includes('success') || currentUrl.includes('result')) {
-        ctx.logger.info('准备关闭成功页面，返回到发布流程...');
-
-        // 直接导航回模板发布页（使用模板商品ID）
-        const templateItemId = process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
-        const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
-        ctx.logger.info(`🚀 导航回模板发布页: ${directUrl}`);
-
-        // 使用 try/catch 处理导航错误，避免 race condition 导致的错误
-        try {
-          await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-          ctx.logger.info('✅ 已返回模板发布页，准备处理下一个商品');
-        } catch (navError) {
-          ctx.logger.warn(`导航回模板页失败: ${navError.message}，稍等后重试...`);
-          await page.waitForTimeout(3000);
-          try {
-            await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            ctx.logger.info('✅ 重试成功，已返回模板发布页');
-          } catch (retryError) {
-            ctx.logger.warn(`重试导航仍失败: ${retryError.message}，继续执行飞书状态更新...`);
-            // 即使导航失败也不 throw，继续执行后续的飞书状态更新
-          }
-        }
-
-        await page.waitForTimeout(2000);
-
-        // 标记可以开始下一个循环
-        ctx.readyForNextCycle = true;
-        ctx.logger.success('✅ 已准备好开始下一个商品的发布流程');
-      }
+      // 不再导航回模板页，直接继续执行后续流程
+      ctx.logger.info('✅ 商品提交成功，继续执行后续步骤');
     }
 
     // 步骤5-7：获取商品ID、保存截图、更新飞书状态
