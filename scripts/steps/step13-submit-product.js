@@ -371,8 +371,13 @@ const step13 = async (ctx) => {
       `${productId}_step13_submit.png`
     );
 
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    ctx.logger.info(`截图已保存: ${screenshotPath}`);
+    // 使用 try/catch 处理截图超时，避免截图失败导致整个流程中断
+    try {
+      await page.screenshot({ path: screenshotPath, fullPage: false, timeout: 60000 });
+      ctx.logger.info(`截图已保存: ${screenshotPath}`);
+    } catch (screenshotError) {
+      ctx.logger.warn(`截图失败: ${screenshotError.message}，继续执行...`);
+    }
 
     // 步骤7：更新飞书状态为"已上传到淘宝"
     ctx.logger.info('\n[步骤7] 更新飞书状态');
