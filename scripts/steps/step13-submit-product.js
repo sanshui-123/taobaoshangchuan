@@ -211,6 +211,19 @@ const step13 = async (ctx) => {
           productId: null  // 稍后获取
         };
 
+        // 🔒 设置防重试标志：提交成功后，阻止阶段B重试
+        ctx.disablePhaseBRetry = true;
+        ctx.logger.info('🔒 已设置防重试标志，后续错误不会触发阶段B重试');
+
+        // 🔒 立即保存成功状态到缓存，确保catch块能正确检测
+        taskCache.submitResults = {
+          status: 'success',
+          message: '商品提交成功，页面已跳转',
+          submitTime: new Date().toISOString()
+        };
+        saveTaskCache(productId, taskCache);
+        ctx.logger.info('💾 成功状态已保存到缓存');
+
       } else {
         // URL不包含成功标识，记录但不抛错
         ctx.logger.warn(`⚠️ 页面URL未包含成功标识: ${currentUrl}`);

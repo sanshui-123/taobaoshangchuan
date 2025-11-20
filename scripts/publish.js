@@ -300,6 +300,13 @@ async function runSteps(options) {
         const failedStep = phaseSteps.find(s => stepStatus[s] === 'failed') || phaseSteps[phaseSteps.length - 1];
         await afterStep(failedStep, 'failed', error);
 
+        // 🔒 检查防重试标志：如果商品已提交成功，不再重试阶段B
+        if (sharedContext.disablePhaseBRetry && phaseName === 'B') {
+          console.log(`\n🔒 商品已提交成功，阻止阶段B重试，避免重复提交`);
+          console.log(`   后续步骤 ${failedStep} 出错不影响提交结果`);
+          return; // 直接返回，不抛错，不重试
+        }
+
         if (retryCount < maxRetries) {
           retryCount++;
           console.log(`\n⚠️  阶段 ${phaseName} 执行失败（步骤 ${failedStep}），准备重试...`);
