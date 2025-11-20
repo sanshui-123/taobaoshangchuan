@@ -173,17 +173,26 @@ const step13 = async (ctx) => {
     // 等待可能的确认弹窗
     await page.waitForTimeout(2000);
 
-    // 查找确认弹窗
-    const confirmDialog = await page.$('.confirm-dialog, .modal, .popup');
-    if (confirmDialog) {
-      ctx.logger.info('检测到确认弹窗');
+    // 查找确认弹窗（使用 try/catch 处理页面导航导致的上下文销毁）
+    try {
+      const confirmDialog = await page.$('.confirm-dialog, .modal, .popup');
+      if (confirmDialog) {
+        ctx.logger.info('检测到确认弹窗');
 
-      // 查找确认按钮
-      const confirmButton = await page.$('button:has-text("确定"), button:has-text("确认"), .confirm-btn');
-      if (confirmButton) {
-        await confirmButton.click();
-        ctx.logger.info('✅ 已确认提交');
-        await page.waitForTimeout(2000);
+        // 查找确认按钮
+        const confirmButton = await page.$('button:has-text("确定"), button:has-text("确认"), .confirm-btn');
+        if (confirmButton) {
+          await confirmButton.click();
+          ctx.logger.info('✅ 已确认提交');
+          await page.waitForTimeout(2000);
+        }
+      }
+    } catch (dialogError) {
+      // 如果上下文被销毁，说明页面已导航到成功页面，这是正常的
+      if (dialogError.message.includes('context was destroyed') || dialogError.message.includes('navigation')) {
+        ctx.logger.info('页面已导航，跳过确认弹窗检测');
+      } else {
+        ctx.logger.warn(`检测确认弹窗失败: ${dialogError.message}`);
       }
     }
 
