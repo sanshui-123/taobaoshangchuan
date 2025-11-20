@@ -206,8 +206,34 @@ const step13 = async (ctx) => {
         // 等待页面加载完成
         await page.waitForTimeout(2000);
 
+        // 检测成功页面关键元素（如 infoContainer）确认提交成功
+        const successElementFound = await page.evaluate(() => {
+          // 检查成功页面的关键元素
+          const successSelectors = [
+            'div[class*="infoContainer"]',
+            'div[class*="success"]',
+            '.publish-success',
+            '.result-success'
+          ];
+          for (const selector of successSelectors) {
+            if (document.querySelector(selector)) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (successElementFound) {
+          ctx.logger.info('✅ 检测到成功页面关键元素');
+        }
+
         // 尝试获取成功页面的商品ID
         const productIdOnPage = await page.evaluate(() => {
+          // 从 URL 中提取商品ID
+          const urlMatch = window.location.href.match(/primaryId=(\d+)/);
+          if (urlMatch) {
+            return urlMatch[1];
+          }
           // 查找商品ID显示元素
           const idElements = document.querySelectorAll('*');
           for (const el of idElements) {
@@ -358,29 +384,8 @@ const step13 = async (ctx) => {
       }
     }
 
-    // 步骤6：保存提交截图
-    ctx.logger.info('\n[步骤6] 保存提交截图');
-    const screenshotDir = path.resolve(process.cwd(), 'screenshots');
-
-    if (!fs.existsSync(screenshotDir)) {
-      fs.mkdirSync(screenshotDir, { recursive: true });
-    }
-
-    const screenshotPath = path.join(
-      screenshotDir,
-      `${productId}_step13_submit.png`
-    );
-
-    // 使用 try/catch 处理截图超时，避免截图失败导致整个流程中断
-    try {
-      await page.screenshot({ path: screenshotPath, fullPage: false, timeout: 60000 });
-      ctx.logger.info(`截图已保存: ${screenshotPath}`);
-    } catch (screenshotError) {
-      ctx.logger.warn(`截图失败: ${screenshotError.message}，继续执行...`);
-    }
-
-    // 步骤7：更新飞书状态为"已上传到淘宝"
-    ctx.logger.info('\n[步骤7] 更新飞书状态');
+    // 步骤6：更新飞书状态为"已上传到淘宝"（移除截图步骤，直接更新状态）
+    ctx.logger.info('\n[步骤6] 更新飞书状态');
 
     // 从 ctx 或 taskCache 中获取飞书记录ID
     const feishuRecordId = ctx.feishuRecordId || taskCache.feishuRecordId;
