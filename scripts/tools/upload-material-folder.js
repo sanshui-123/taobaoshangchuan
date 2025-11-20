@@ -909,31 +909,82 @@ async function uploadImages(productId) {
       throw new Error('未找到上传文件按钮');
     }
 
-    // 🔧 修复：设置 filechooser 事件监听器，直接选择本地文件
-    // 当点击上传按钮时，如果触发了 <input type="file">，会弹出系统文件选择器（Finder）
-    // 使用监听器来直接设置文件，避免 Finder 一直挂在前面
+    // 🔧 修复：优先使用 input[type="file"].setInputFiles() 直接设置文件，绕过 Finder 对话框
     const filePaths = localData.files.map(file => path.join(localData.localFolder, file));
     log(`📁 准备上传 ${filePaths.length} 个本地文件`);
 
-    const fileChooserHandler = async (fileChooser) => {
-      log('📂 检测到文件选择器，直接选择本地文件...', 'info');
-      // 直接设置本地文件列表
-      await fileChooser.setFiles(filePaths);
-      log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
-      // 双保险：连续发送 ESC 强制关闭 Finder
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
-      await page.keyboard.press('Escape');
-      log('✅ 已强制关闭文件对话框', 'success');
-    };
-    page.once('filechooser', fileChooserHandler);
+    // 方案1：优先查找隐藏的 input[type="file"]，直接设置文件（完全绕过 Finder）
+    const fileInputSelectors = [
+      'input[type="file"]',
+      'input[accept*="image"]',
+      '.upload-container input[type="file"]',
+      '[class*="upload"] input[type="file"]'
+    ];
 
-    await uploadButton.click();
-    log('点击了上传文件按钮', 'success');
-    await page.waitForTimeout(2000);
+    let fileInputSet = false;
+    for (const selector of fileInputSelectors) {
+      try {
+        const fileInput = await page.$(selector);
+        if (fileInput) {
+          log(`📂 找到文件输入框: ${selector}，直接设置文件...`, 'info');
+          await fileInput.setInputFiles(filePaths);
+          log(`✅ 已通过 input.setInputFiles() 直接设置 ${filePaths.length} 个文件（绕过 Finder）`, 'success');
+          fileInputSet = true;
+          break;
+        }
+      } catch (e) {
+        logVerbose(`尝试 ${selector} 失败: ${e.message}`);
+        continue;
+      }
+    }
 
-    // 移除监听器（如果没有触发）
-    page.removeListener('filechooser', fileChooserHandler);
+    if (fileInputSet) {
+      // 已通过 input 设置文件，等待上传开始
+      await page.waitForTimeout(1000);
+      log('✅ 文件已设置，等待上传处理...', 'success');
+    } else {
+      // 方案2：如果找不到 input，使用 filechooser 事件监听器
+      log('⚠️ 未找到文件输入框，使用 filechooser 事件监听方式...', 'warning');
+
+      const fileChooserHandler = async (fileChooser) => {
+        log('📂 检测到文件选择器，直接选择本地文件...', 'info');
+        try {
+          // 直接设置本地文件列表
+          await fileChooser.setFiles(filePaths);
+          log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
+        } catch (setFilesError) {
+          log(`⚠️ setFiles 出错: ${setFilesError.message}`, 'warning');
+        } finally {
+          // 无论成功失败，都强制关闭 Finder
+          try {
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(200);
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(200);
+            await page.keyboard.press('Escape');
+            log('✅ 已发送三次 ESC 强制关闭文件对话框', 'success');
+          } catch (escError) {
+            log(`⚠️ ESC 发送失败: ${escError.message}`, 'warning');
+          }
+        }
+      };
+      page.once('filechooser', fileChooserHandler);
+
+      await uploadButton.click();
+      log('点击了上传文件按钮', 'success');
+      await page.waitForTimeout(2000);
+
+      // 移除监听器（如果没有触发）
+      page.removeListener('filechooser', fileChooserHandler);
+
+      // 额外保险：再发送 ESC 确保 Finder 关闭
+      try {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+      } catch (e) {
+        // 忽略
+      }
+    }
 
     // 如果有"批量导入文件"选项，点击它
     try {
