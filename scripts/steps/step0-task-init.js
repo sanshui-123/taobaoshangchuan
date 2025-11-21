@@ -19,6 +19,12 @@ function buildUpdateData(fields) {
   return updateData;
 }
 
+// 规范化商品ID（转字符串并去掉前导0）
+const normalizeProductId = (id) => {
+  if (id === undefined || id === null) return '';
+  return String(id).trim().replace(/^0+/, '');
+};
+
 /**
  * 步骤0：任务初始化
  * 从飞书获取待发布商品数据
@@ -39,11 +45,12 @@ const step0 = async (ctx) => {
       // 查找匹配的记录
       const record = allRecords.find(r => {
         const productId = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+        const targetId = normalizeProductId(ctx.productId);
         // 处理商品ID可能是字符串或数组的情况
         if (Array.isArray(productId)) {
-          return productId.includes(ctx.productId);
+          return productId.some(pid => normalizeProductId(pid) === targetId);
         } else {
-          return productId === ctx.productId;
+          return normalizeProductId(productId) === targetId;
         }
       });
 
@@ -85,18 +92,24 @@ const step0 = async (ctx) => {
         ctx.logger.info(`按品类"${targetCategory}"筛选后剩余 ${records.length} 条记录`);
       }
 
-      // 根据性别筛选
+      // 根据性别筛选（包含性别为空的记录）
       const genderField = process.env.FEISHU_GENDER_FIELD || '性别';
       if (ctx.options && ctx.options.gender) {
         const targetGender = ctx.options.gender;
         records = records.filter(r => {
           const genderValue = r.fields[genderField];
+
+          // 如果性别字段为空，也包含进来（待后续推断）
+          if (!genderValue || (Array.isArray(genderValue) && genderValue.length === 0)) {
+            return true;
+          }
+
           if (Array.isArray(genderValue)) {
             return genderValue.some(g => (g.text || g) === targetGender);
           }
           return (genderValue?.text || genderValue) === targetGender;
         });
-        ctx.logger.info(`按性别"${targetGender}"筛选后剩余 ${records.length} 条记录`);
+        ctx.logger.info(`按性别"${targetGender}"筛选后剩余 ${records.length} 条记录（包含性别为空的记录）`);
       }
 
       if (records.length === 0) {
@@ -104,8 +117,33 @@ const step0 = async (ctx) => {
         return;
       }
 
-      // 处理第一条记录
+      // 优先处理"待检测"和"待上传"状态的商品
+      const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+      const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+      const pendingValue = process.env.FEISHU_STATUS_PENDING_VALUE || '待上传';
+
+      // 按优先级排序：待检测 > 待上传 > 上传失败 > 其他
+      const priorityOrder = [checkingValue, pendingValue];
+      records.sort((a, b) => {
+        const statusA = a.fields[statusField] || '';
+        const statusB = b.fields[statusField] || '';
+        const priorityA = priorityOrder.indexOf(statusA);
+        const priorityB = priorityOrder.indexOf(statusB);
+
+        // 如果都在优先级列表中，按优先级排序
+        if (priorityA !== -1 && priorityB !== -1) {
+          return priorityA - priorityB;
+        }
+        // 优先级列表中的排在前面
+        if (priorityA !== -1) return -1;
+        if (priorityB !== -1) return 1;
+        // 都不在优先级列表中，保持原顺序
+        return 0;
+      });
+
+      // 处理第一条记录（优先级最高的）
       const record = records[0];
+      ctx.logger.info(`📊 当前记录状态: ${record.fields[statusField] || '(空)'}`);
       await processRecord(record, ctx);
     }
 
@@ -586,10 +624,11 @@ async function runBatch(productIds) {
     // 查找对应的记录
     const record = allRecords.find(r => {
       const pid = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+      const targetId = normalizeProductId(productId);
       if (Array.isArray(pid)) {
-        return pid.includes(productId);
+        return pid.some(item => normalizeProductId(item) === targetId);
       } else {
-        return pid === productId;
+        return normalizeProductId(pid) === targetId;
       }
     });
 
