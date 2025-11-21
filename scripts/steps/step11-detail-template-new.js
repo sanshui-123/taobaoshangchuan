@@ -316,23 +316,41 @@ const step11Detail = async (ctx) => {
     ctx.logger.info('\n[步骤7] 搜索商品文件夹');
 
     // 动态查找包含搜索框的 iframe（参考 Step5 的逻辑）
-    const iframes = page.locator('iframe');
-    const iframeCount = await iframes.count();
-    ctx.logger.info(`  检测到 ${iframeCount} 个 iframe`);
-
+    // 先在弹窗内查找 iframe，再全局兜底
+    const imageDialogLocator = page.locator('.next-dialog:has-text("图像"), .next-dialog:has-text("图片"), .next-dialog');
     let imageFrame = null;
-    for (let i = 0; i < iframeCount; i++) {
-      try {
-        const frame = iframes.nth(i).contentFrame();
-        const searchInput = frame.getByRole('combobox', { name: '请输入文件夹名称' });
-        if (await searchInput.isVisible({ timeout: 500 })) {
-          imageFrame = frame;
-          ctx.logger.info(`  ✅ 在第 ${i + 1} 个 iframe 中找到搜索框`);
-          break;
+
+    const scanFrames = async (framesLocator) => {
+      const total = await framesLocator.count();
+      for (let i = 0; i < total; i++) {
+        try {
+          const locator = framesLocator.nth(i);
+          const frame = await locator.contentFrame();
+          if (!frame) continue;
+          const searchInput = frame.getByRole('combobox', { name: '请输入文件夹名称' });
+          if (await searchInput.isVisible({ timeout: 800 })) {
+            ctx.logger.info(`  ✅ 在第 ${i + 1} 个 iframe 中找到搜索框`);
+            return frame;
+          }
+        } catch (e) {
+          // 继续尝试下一个
         }
-      } catch (e) {
-        // 继续尝试下一个
       }
+      return null;
+    };
+
+    // 方案1：弹窗内的 iframe
+    if (await imageDialogLocator.count()) {
+      const dialogFrames = imageDialogLocator.locator('iframe');
+      imageFrame = await scanFrames(dialogFrames);
+    }
+
+    // 方案2：全局 iframe 兜底
+    if (!imageFrame) {
+      const globalIframes = page.locator('iframe');
+      const iframeCount = await globalIframes.count();
+      ctx.logger.info(`  检测到 ${iframeCount} 个 iframe（全局兜底）`);
+      imageFrame = await scanFrames(globalIframes);
     }
 
     if (!imageFrame) {
