@@ -8,22 +8,20 @@ const { uploadImages } = require('./tools/upload-material-folder');
 
 // 步骤名称映射
 const stepNames = [
-  '任务初始化',    // 0
-  '下载图片',      // 1
-  '翻译内容',      // 2
-  '登录验证',      // 3
-  '打开发布页',    // 4
-  '上传主图',      // 5
-  '标题分类',      // 6 - 新增
-  '选择品牌',      // 7
-  '填写货号性别',  // 8
-  '填写颜色',      // 9
-  '填写尺码',      // 10
-  '填写价格库存',  // 11
-  '裁剪图片',      // 12
-  '填写详情',      // 13
-  '提交商品',      // 14
-  '日志通知'       // 15
+  '任务初始化',          // 0
+  '下载图片',            // 1
+  '翻译内容',            // 2
+  '登录验证',            // 3
+  '打开发布页',          // 4
+  '上传主图',            // 5
+  '标题分类',            // 6
+  '选择品牌',            // 7
+  '填写货号性别',        // 8
+  '填写价格库存',        // 9
+  '裁剪3:4主图',         // 10
+  '填写详情模板',        // 11
+  '提交商品',            // 12
+  '日志通知'             // 13
 ];
 
 function getStepName(stepId) {
@@ -71,6 +69,7 @@ async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
 
   // 确定要执行的步骤范围
+  const maxStep = stepNames.length - 1;
   let stepsToRun = [];
   if (options.step && options.step.length > 0) {
     stepsToRun = options.step;
@@ -79,7 +78,7 @@ async function runSteps(options) {
       stepsToRun.push(i);
     }
   } else {
-    for (let i = 0; i <= 15; i++) {
+    for (let i = 0; i <= maxStep; i++) {
       stepsToRun.push(i);
     }
   }
@@ -135,24 +134,10 @@ async function runSteps(options) {
   const taskCache = loadTaskCache(tempProductId);
 
   // 初始化步骤状态
-  const stepStatus = {
-    0: taskCache.stepStatus[0] || 'pending',
-    1: taskCache.stepStatus[1] || 'pending',
-    2: taskCache.stepStatus[2] || 'pending',
-    3: taskCache.stepStatus[3] || 'pending',
-    4: taskCache.stepStatus[4] || 'pending',
-    5: taskCache.stepStatus[5] || 'pending',
-    6: taskCache.stepStatus[6] || 'pending',
-    7: taskCache.stepStatus[7] || 'pending',
-    8: taskCache.stepStatus[8] || 'pending',
-    9: taskCache.stepStatus[9] || 'pending',
-    10: taskCache.stepStatus[10] || 'pending',
-    11: taskCache.stepStatus[11] || 'pending',
-    12: taskCache.stepStatus[12] || 'pending',
-    13: taskCache.stepStatus[13] || 'pending',
-    14: taskCache.stepStatus[14] || 'pending',
-    15: taskCache.stepStatus[15] || 'pending'
-  };
+  const stepStatus = {};
+  for (let i = 0; i <= maxStep; i++) {
+    stepStatus[i] = taskCache.stepStatus[i] || 'pending';
+  }
 
   console.log(`\n📋 将执行步骤: ${stepsToRun.join(', ')}`);
 
@@ -252,8 +237,8 @@ async function runSteps(options) {
 
   // 阶段定义
   const PHASE_A_END = 3;   // 阶段 A: Step 0-3 (取单、下载、翻译、登录)
-  const PHASE_B_START = 4; // 阶段 B: Step 4-14 (打开发布页到提交成功)
-  const PHASE_B_END = 14;  // 阶段 B 结束于提交商品
+  const PHASE_B_START = 4; // 阶段 B: Step 4-12 (打开发布页到提交成功)
+  const PHASE_B_END = 12;  // 阶段 B 结束于提交商品
 
   // 执行单个步骤的辅助函数
   const executeStep = async (stepId) => {
@@ -326,7 +311,7 @@ async function runSteps(options) {
   // 根据 stepsToRun 划分阶段
   const phaseASteps = stepsToRun.filter(s => s <= PHASE_A_END);
   const phaseBSteps = stepsToRun.filter(s => s >= PHASE_B_START && s <= PHASE_B_END);
-  const finalSteps = stepsToRun.filter(s => s > PHASE_B_END); // Step 15 日志通知
+  const finalSteps = stepsToRun.filter(s => s > PHASE_B_END); // 日志通知
 
   // 执行阶段 A（如果有步骤在该阶段）
   if (phaseASteps.length > 0) {
@@ -350,7 +335,7 @@ async function runSteps(options) {
     }
   }
 
-  // 执行最终步骤（Step 15 日志通知，不重试）
+  // 执行最终步骤（日志通知，不重试）
   if (finalSteps.length > 0) {
     console.log(`\n📦 最终步骤: 日志汇总 (步骤 ${finalSteps.join(', ')})`);
     for (const stepId of finalSteps) {

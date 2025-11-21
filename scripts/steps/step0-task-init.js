@@ -372,6 +372,10 @@ async function processRecord(record, ctx) {
     return [];
   };
 
+  // 读取性别/品类（如果存在）
+  const genderValue = getFieldValue(fields, process.env.FEISHU_GENDER_FIELD || '适用性别');
+  const categoryValue = getFieldValue(fields, process.env.FEISHU_CATEGORY_FIELD || '品类');
+
   const productData = {
     productId,
     feishuRecordId: record_id,
@@ -383,6 +387,8 @@ async function processRecord(record, ctx) {
     detailCN: getFieldValue(fields, process.env.FEISHU_DETAIL_CN_FIELD || '详情页文字'),
     detailJP: getFieldValue(fields, process.env.FEISHU_DETAIL_JP_FIELD || '详情页文字_日文'),
     price: getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格'),
+    category: categoryValue,
+    gender: genderValue,
     images: getImageUrls(fields, process.env.FEISHU_IMAGE_FIELD || '图片URL'),
     colors: getMultiValueField(fields, process.env.FEISHU_COLOR_FIELD || '颜色'),
     sizes: getMultiValueField(fields, process.env.FEISHU_SIZE_FIELD || '尺码'),
@@ -395,6 +401,12 @@ async function processRecord(record, ctx) {
   ctx.logger.info(`图片数量: ${productData.images.length}`);
   ctx.logger.info(`颜色数量: ${productData.colors.length}`);
   ctx.logger.info(`尺码数量: ${productData.sizes.length}`);
+  if (productData.category) {
+    ctx.logger.info(`品类: ${productData.category}`);
+  }
+  if (productData.gender) {
+    ctx.logger.info(`适用性别: ${productData.gender}`);
+  }
 
   // 保存到缓存
   const cacheData = {

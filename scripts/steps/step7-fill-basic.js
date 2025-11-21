@@ -240,9 +240,12 @@ const step7 = async (ctx) => {
     // ============================================
     ctx.logger.info('\n[步骤5] 填写适用性别（基础信息页签）');
 
-    // 从缓存或标题中智能识别性别
+    // 从缓存优先读取性别（飞书字段）
     const taskCache = loadTaskCache(productId);
-    let targetGender = taskCache?.productData?.targetAudience || taskCache?.productData?.gender;
+    let targetGender = normalizeGender(
+      taskCache?.productData?.gender ||
+      taskCache?.productData?.targetAudience
+    );
 
     // 如果缓存中没有，尝试从标题中识别
     if (!targetGender) {
@@ -326,5 +329,21 @@ const step7 = async (ctx) => {
     throw error;
   }
 };
+
+/**
+ * 规范化性别值，返回 '男' / '女'，未知返回空字符串
+ */
+function normalizeGender(value) {
+  if (!value) return '';
+  const text = Array.isArray(value) ? (value[0] || '') : String(value);
+  const lower = text.toLowerCase();
+  if (text.includes('女') || lower.includes('women') || lower.includes('lady') || lower.includes('female')) {
+    return '女';
+  }
+  if (text.includes('男') || lower.includes('men') || lower.includes('male')) {
+    return '男';
+  }
+  return '';
+}
 
 module.exports = { step7 };

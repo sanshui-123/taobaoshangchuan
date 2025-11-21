@@ -593,7 +593,15 @@ const step5 = async (ctx) => {
       }
 
       // 根据颜色数智能选择图片（使用新的选择规则）
-      const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, brand, productId, ctx);
+      const selectedCount = await selectImagesByRules(
+        uploadLocator,
+        imageCount,
+        colorCount,
+        brand,
+        productId,
+        ctx,
+        imageCardSelector  // 传入实际命中的卡片选择器，避免类名不一致
+      );
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
       // 直接标记为完成，不再等待弹窗关闭或验证上传结果
@@ -743,9 +751,10 @@ function pickIndexLast(k, imageCount) {
  * @param {string} brand - 品牌名
  * @param {string} productId - 商品ID
  * @param {object} ctx - 上下文对象
+ * @param {string} imageCardSelector - 命中的图片卡片选择器
  * @returns {number} 成功选择的图片数量
  */
-async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, productId, ctx) {
+async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, productId, ctx, imageCardSelector) {
   let selectedCount = 0;
 
   ctx.logger.info(`\n📋 开始智能选择图片`);
@@ -758,8 +767,9 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     ctx.logger.info(`  ✨ Le Coq 品牌：直接从最后往前取 5 张主图\n`);
 
     // 缓存所有图片元素
-    ctx.logger.info('  📦 缓存图片列表...');
-    const cardHandles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
+    const cardLocator = uploadFrame.locator(imageCardSelector || '.PicList_pic_background__pGTdV');
+    ctx.logger.info(`  📦 使用选择器 "${imageCardSelector || '.PicList_pic_background__pGTdV'}" 缓存图片列表...`);
+    const cardHandles = await cardLocator.elementHandles();
     ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
 
     // 确定要选择的图片数量（最多5张，如果少于5张则全取）
@@ -808,7 +818,9 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
 
   // 🔧 修复：提前缓存所有图片元素，避免 DOM 重排导致索引偏移
   ctx.logger.info('  📦 缓存图片列表（避免DOM重排影响）...');
-  const cardHandles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
+  const cardLocator = uploadFrame.locator(imageCardSelector || '.PicList_pic_background__pGTdV');
+  ctx.logger.info(`  📦 使用选择器 "${imageCardSelector || '.PicList_pic_background__pGTdV'}" 缓存图片列表...`);
+  const cardHandles = await cardLocator.elementHandles();
   ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
 
   // 🔧 封装获取卡片的辅助函数（带边界保护）
