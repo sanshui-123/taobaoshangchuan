@@ -85,6 +85,20 @@ const step0 = async (ctx) => {
         ctx.logger.info(`按品类"${targetCategory}"筛选后剩余 ${records.length} 条记录`);
       }
 
+      // 根据性别筛选
+      const genderField = process.env.FEISHU_GENDER_FIELD || '性别';
+      if (ctx.options && ctx.options.gender) {
+        const targetGender = ctx.options.gender;
+        records = records.filter(r => {
+          const genderValue = r.fields[genderField];
+          if (Array.isArray(genderValue)) {
+            return genderValue.some(g => (g.text || g) === targetGender);
+          }
+          return (genderValue?.text || genderValue) === targetGender;
+        });
+        ctx.logger.info(`按性别"${targetGender}"筛选后剩余 ${records.length} 条记录`);
+      }
+
       if (records.length === 0) {
         ctx.logger.info('没有待发布的商品');
         return;

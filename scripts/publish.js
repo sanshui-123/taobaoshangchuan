@@ -63,7 +63,8 @@ program
   .option('--verbose', '详细日志输出')
   .option('--screenshot', '每个步骤完成后自动截图')
   .option('--brand <name>', '只处理指定品牌')
-  .option('--category <name>', '只处理指定品类');
+  .option('--category <name>', '只处理指定品类')
+  .option('--gender <name>', '只处理指定性别');
 
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;

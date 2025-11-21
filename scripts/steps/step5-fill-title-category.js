@@ -96,71 +96,121 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     // ==================== 第二部分：判断服装分类 ====================
     logger.info('\n[步骤2] 分析服装分类');
 
-    // 优先使用飞书品类字段，缺失时再按标题规则推断
-    let taobaoCategory = '';
+    // 优先使用飞书品类字段，缺失或不匹配时退回标题推断
+    const candidateCategories = [];
     if (productData.category && String(productData.category).trim()) {
-      taobaoCategory = String(productData.category).trim();
-      logger.info(`  使用飞书品类字段: ${taobaoCategory}`);
-    } else {
-      const detailedType = determine_clothing_type(productData);
-      logger.info(`  细分类型: ${detailedType}`);
-      taobaoCategory = mapToTaobaoCategory(detailedType);
-      logger.info(`  淘宝类目: ${taobaoCategory}`);
+      const primary = String(productData.category).trim();
+      candidateCategories.push(primary);
+      logger.info(`  使用飞书品类字段: ${primary}`);
+    }
+
+    const detailedType = determine_clothing_type(productData);
+    const fallbackCategory = mapToTaobaoCategory(detailedType);
+    if (!candidateCategories.includes(fallbackCategory)) {
+      candidateCategories.push(fallbackCategory);
+      logger.info(`  备用类目（按标题推断）: ${fallbackCategory}`);
+    }
+
+    if (candidateCategories.length === 0) {
+      candidateCategories.push('其他');
+      logger.info('  未获取到品类，使用默认类目: 其他');
     }
 
     // ==================== 第三部分：选择服装分类 ====================
     logger.info('\n[步骤3] 选择服装分类');
 
-    // 3.1 点击分类下拉框（当前显示的分类值）
-    logger.info('  3.1 点击下拉框');
-    await page.locator('span').filter({
-      hasText: /POLO|T恤|其他|卫衣|场训服|外套|套装|比赛服|短袖|短裙|短裤|紧身衣裤|背心|腰带|袜子|训练服|连衣裙|长袖|长裤|马甲/
-    }).nth(2).click();
+    // 依次尝试候选类目，命中即止
+    let categorySelected = false;
+    for (const taobaoCategory of candidateCategories) {
+      logger.info(`\n  尝试选择分类: ${taobaoCategory}`);
 
-    // 3.2 等待下拉框完全展开
-    await page.waitForTimeout(800);
-    logger.info('  3.2 下拉框已展开');
+      // 3.1 点击分类下拉框（当前显示的分类值）
+      logger.info('  3.1 点击下拉框');
+      await page.locator('span').filter({
+        hasText: /POLO|T恤|其他|卫衣|场训服|外套|套装|比赛服|短袖|短裙|短裤|紧身衣裤|背心|腰带|袜子|训练服|连衣裙|长袖|长裤|马甲/
+      }).nth(2).click();
 
-    // 3.3 确保搜索框可见（尝试多个选择器）
-    let searchInput;
-    try {
-      await page.waitForSelector('.options-search > .next-input > input', {
-        state: 'visible',
-        timeout: 5000
-      });
-      searchInput = page.locator('.options-search > .next-input > input');
-    } catch (error) {
-      // 尝试备用选择器
-      await page.waitForSelector('.next-select input', {
-        state: 'visible',
-        timeout: 5000
-      });
-      searchInput = page.locator('.next-select input');
+      // 3.2 等待下拉框完全展开
+      await page.waitForTimeout(800);
+      logger.info('  3.2 下拉框已展开');
+
+      // 3.3 确保搜索框可见（尝试多个选择器）
+      let searchInput;
+      try {
+        await page.waitForSelector('.options-search > .next-input > input', {
+          state: 'visible',
+          timeout: 5000
+        });
+        searchInput = page.locator('.options-search > .next-input > input');
+      } catch (error) {
+        // 尝试备用选择器
+        await page.waitForSelector('.next-select input', {
+          state: 'visible',
+          timeout: 5000
+        });
+        searchInput = page.locator('.next-select input');
+      }
+
+      // 3.4 点击搜索框
+      logger.info(`  3.3 在搜索框输入: ${taobaoCategory}`);
+      await searchInput.click();
+      await page.waitForTimeout(300);
+
+      // 3.5 清空搜索框
+      await page.locator('.next-input.next-focus > input').clear();
+      await page.waitForTimeout(200);
+
+      // 3.6 填入淘宝分类
+      await page.locator('.next-input.next-focus > input').fill(taobaoCategory);
+      await page.waitForTimeout(500);
+
+      // 3.7 等待搜索结果加载
+      logger.info('  3.4 等待搜索结果');
+      await page.waitForTimeout(800);
+
+      // 3.8 点击匹配的分类选项（title 或文本）
+      logger.info(`  3.5 选择分类: ${taobaoCategory}`);
+      try {
+        const optionByTitle = page.getByTitle(taobaoCategory).first();
+        if (await optionByTitle.count()) {
+          await optionByTitle.click();
+        } else {
+          await page.getByText(taobaoCategory, { exact: false }).first().click();
+        }
+        await page.waitForTimeout(500);
+        logger.info('  ✅ 分类选择完成');
+        categorySelected = true;
+        break;
+      } catch (err) {
+        logger.warn(`  ⚠️ 分类 "${taobaoCategory}" 选择失败: ${err.message}`);
+        // 下一个候选
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(300);
+      }
     }
 
-    // 3.4 点击搜索框
-    logger.info(`  3.3 在搜索框输入: ${taobaoCategory}`);
-    await searchInput.click();
-    await page.waitForTimeout(300);
+    if (!categorySelected) {
+      logger.warn(`  ⚠️ 未能匹配候选分类 (${candidateCategories.join(', ')})，尝试选择下拉第一项作为兜底`);
 
-    // 3.5 清空搜索框
-    await page.locator('.next-input.next-focus > input').clear();
-    await page.waitForTimeout(200);
+      // 兜底：打开下拉，选择第一项
+      await page.locator('span').filter({
+        hasText: /POLO|T恤|其他|卫衣|场训服|外套|套装|比赛服|短袖|短裙|短裤|紧身衣裤|背心|腰带|袜子|训练服|连衣裙|长袖|长裤|马甲/
+      }).nth(2).click();
+      await page.waitForTimeout(500);
 
-    // 3.6 填入淘宝分类
-    await page.locator('.next-input.next-focus > input').fill(taobaoCategory);
-    await page.waitForTimeout(500);
-
-    // 3.7 等待搜索结果加载
-    logger.info('  3.4 等待搜索结果');
-    await page.waitForTimeout(800);
-
-    // 3.8 点击匹配的分类选项
-    logger.info(`  3.5 选择分类: ${taobaoCategory}`);
-    await page.getByTitle(taobaoCategory).click();
-    await page.waitForTimeout(500);
-
-    logger.info('  ✅ 分类选择完成');
+      const options = page.locator('.next-menu-item, li[role="option"]');
+      const optionCount = await options.count().catch(() => 0);
+      if (optionCount > 0) {
+        const firstOption = options.first();
+        const text = await firstOption.textContent().catch(() => '');
+        await firstOption.click({ timeout: 3000 });
+        await page.waitForTimeout(400);
+        logger.warn(`  ⚠️ 未命中候选，已选下拉第一项: ${text?.trim() || '未知'}`);
+        categorySelected = true;
+      } else {
+        logger.warn('  ⚠️ 下拉没有可选项，保持当前值继续');
+      }
+    }
 
     logger.info('\n========== 标题和分类填写完成 ==========\n');
 
