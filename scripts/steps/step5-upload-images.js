@@ -73,6 +73,7 @@ const step5 = async (ctx) => {
 
     const colors = taskCache.productData.colors;
     const colorCount = colors.length;
+    const brand = (taskCache.productData.brand || '').trim();
     ctx.logger.info(`商品颜色数量: ${colorCount}`);
 
     // 根据颜色数量确定策略
@@ -592,7 +593,7 @@ const step5 = async (ctx) => {
       }
 
       // 根据颜色数智能选择图片（使用新的选择规则）
-      const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, ctx);
+      const selectedCount = await selectImagesByRules(uploadLocator, imageCount, colorCount, brand, productId, ctx);
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
       // 直接标记为完成，不再等待弹窗关闭或验证上传结果
@@ -735,18 +736,74 @@ function pickIndexLast(k, imageCount) {
 /**
  * 根据颜色数智能选择图片
  * 新规则：统一点击5张，每一击根据颜色数决定点击倒数/正数第几个元素
+ * Le Coq品牌特例：从最后往前取5张
  * @param {Locator} uploadFrame - 上传弹窗的定位器（iframe或page）
  * @param {number} imageCount - 图片总数
  * @param {number} colorCount - 颜色数量
+ * @param {string} brand - 品牌名
+ * @param {string} productId - 商品ID
  * @param {object} ctx - 上下文对象
  * @returns {number} 成功选择的图片数量
  */
-async function selectImagesByRules(uploadFrame, imageCount, colorCount, ctx) {
+async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, productId, ctx) {
   let selectedCount = 0;
 
   ctx.logger.info(`\n📋 开始智能选择图片`);
+  ctx.logger.info(`  品牌: ${brand}`);
   ctx.logger.info(`  颜色数: ${colorCount}`);
   ctx.logger.info(`  总图片数: ${imageCount}`);
+
+  // ========== Le Coq 品牌特例 ==========
+  if (brand === 'Le Coq公鸡乐卡克') {
+    ctx.logger.info(`  ✨ Le Coq 品牌：直接从最后往前取 5 张主图\n`);
+
+    // 缓存所有图片元素
+    ctx.logger.info('  📦 缓存图片列表...');
+    const cardHandles = await uploadFrame.locator('.PicList_pic_background__pGTdV').elementHandles();
+    ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
+
+    // 确定要选择的图片数量（最多5张，如果少于5张则全取）
+    const selectCount = Math.min(5, cardHandles.length);
+    ctx.logger.info(`  📋 计划选择: ${selectCount} 张图片（从最后往前）\n`);
+
+    // 从最后一张往前选择
+    for (let i = 0; i < selectCount; i++) {
+      const targetIndex = cardHandles.length - 1 - i;  // 倒数第(i+1)张
+      ctx.logger.info(`第${i+1}张 → 索引${targetIndex} (倒数第${i+1}张)`);
+
+      try {
+        const cardHandle = cardHandles[targetIndex];
+
+        if (!cardHandle) {
+          ctx.logger.warn(`  ⚠️  索引${targetIndex}没有元素，跳过`);
+          continue;
+        }
+
+        // 滚动到视图中
+        await cardHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
+
+        // 等待动画稳定
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        // 点击图片卡片
+        await cardHandle.click({ timeout: 3000 });
+
+        selectedCount++;
+        ctx.logger.info(`  ✅ 第${i+1}张 → 索引${targetIndex} → 成功`);
+
+      } catch (error) {
+        ctx.logger.warn(`  ❌ 第${i+1}张 → 失败: ${error.message}`);
+      }
+
+      // 点击间隔
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    ctx.logger.info(`\n✅ Le Coq 图片选择完成：成功 ${selectedCount}/${selectCount} 张\n`);
+    return selectedCount;
+  }
+
+  // ========== 其他品牌：使用原有颜色策略 ==========
   ctx.logger.info(`  规则: 固定5次点击，根据颜色数智能选择索引\n`);
 
   // 🔧 修复：提前缓存所有图片元素，避免 DOM 重排导致索引偏移
