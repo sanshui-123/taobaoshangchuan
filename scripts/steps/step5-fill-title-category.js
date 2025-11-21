@@ -96,13 +96,17 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     // ==================== 第二部分：判断服装分类 ====================
     logger.info('\n[步骤2] 分析服装分类');
 
-    // 2.1 使用分类判断函数
-    const detailedType = determine_clothing_type(productData);
-    logger.info(`  细分类型: ${detailedType}`);
-
-    // 2.2 映射到淘宝类目
-    const taobaoCategory = mapToTaobaoCategory(detailedType);
-    logger.info(`  淘宝类目: ${taobaoCategory}`);
+    // 优先使用飞书品类字段，缺失时再按标题规则推断
+    let taobaoCategory = '';
+    if (productData.category && String(productData.category).trim()) {
+      taobaoCategory = String(productData.category).trim();
+      logger.info(`  使用飞书品类字段: ${taobaoCategory}`);
+    } else {
+      const detailedType = determine_clothing_type(productData);
+      logger.info(`  细分类型: ${detailedType}`);
+      taobaoCategory = mapToTaobaoCategory(detailedType);
+      logger.info(`  淘宝类目: ${taobaoCategory}`);
+    }
 
     // ==================== 第三部分：选择服装分类 ====================
     logger.info('\n[步骤3] 选择服装分类');
