@@ -157,7 +157,7 @@ class FeishuClient {
   /**
    * 获取多维表格记录
    */
-  async getRecords(pageSize = 100, filterStatuses = null) {
+  async getRecords(pageSize = 100, filterStatuses = null, pageToken = null) {
     // 使用实例变量中的 appToken 和 tableId
     if (!this.appToken || !this.tableId) {
       throw new Error('App token and table ID are required');
@@ -165,6 +165,10 @@ class FeishuClient {
 
     // 构建请求路径，包含过滤条件
     let path = `/bitable/v1/apps/${this.appToken}/tables/${this.tableId}/records?page_size=${pageSize}`;
+
+    if (pageToken) {
+      path += `&page_token=${pageToken}`;
+    }
 
     // 如果需要过滤状态，构建 filter 参数
     if (filterStatuses && filterStatuses.length > 0) {
@@ -223,33 +227,82 @@ class FeishuClient {
   async getAllRecords() {
     // 解析目标状态列表
     const targetStatusEnv = process.env.FEISHU_TARGET_STATUS;
+    console.log('[飞书-DEBUG] FEISHU_TARGET_STATUS:', targetStatusEnv);
     let targetStatuses;
+    let includeEmpty = false; // 是否包含空状态
 
     if (targetStatusEnv) {
-      // 支持逗号分隔的多个状态
-      targetStatuses = targetStatusEnv.split(',').map(s => s.trim()).filter(s => s);
+      // 支持逗号分隔的多个状态，split 后的数组保留所有元素
+      const rawStatuses = targetStatusEnv.split(',').map(s => s.trim());
+      console.log('[飞书-DEBUG] Split后的状态:', rawStatuses);
+
+      // 检查是否包含空字符串（表示要包含空状态）
+      includeEmpty = rawStatuses.some(s => s === '');
+      console.log('[飞书-DEBUG] 包含空状态:', includeEmpty);
+
+      // 过滤掉空字符串，得到非空状态列表
+      targetStatuses = rawStatuses.filter(s => s);
+      console.log('[飞书-DEBUG] 非空状态列表:', targetStatuses);
+
+      if (includeEmpty) {
+        console.log('[飞书] ✅ 配置包含空状态，将同时获取状态为空的记录');
+      }
     } else {
       // 默认只获取"待检测"状态
       targetStatuses = [process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测'];
     }
 
-    // 先尝试使用 API 过滤，如果失败则回退到本地过滤
+    const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+    const pageSize = 500; // 保守使用 500，避免接口上限
+
+    // 带分页拉取
+    const fetchAll = async (statuses) => {
+      const all = [];
+      let pageToken = null;
+      let hasMore = true;
+      while (hasMore) {
+        const resp = await this.getRecords(pageSize, statuses, pageToken);
+        all.push(...(resp.records || resp.items || []));
+        hasMore = !!resp.has_more;
+        pageToken = resp.page_token || null;
+        if (!hasMore) break;
+      }
+      return all;
+    };
+
+    let records = [];
     try {
-      const response = await this.getRecords(1000, targetStatuses);
-      return response.records || response.items || [];
+      records = await fetchAll(targetStatuses);
     } catch (error) {
-      // 如果 API 过滤失败，回退到获取所有记录并在本地过滤
       if (error.message.includes('InvalidFilter')) {
         this.logger?.warn?.('API 过滤失败，回退到本地过滤');
-        const response = await this.getRecords(1000, null);
-        const allRecords = response.records || response.items || [];
-        return allRecords.filter(record => {
-          const statusValue = record.fields[process.env.FEISHU_STATUS_FIELD || '上传状态'];
+        const allRecords = await fetchAll(null);
+        records = allRecords.filter(record => {
+          const statusValue = record.fields[statusField];
           return targetStatuses.includes(statusValue);
         });
+      } else {
+        throw error;
       }
-      throw error;
     }
+
+    // 如需包含空状态，补充空值记录并去重
+    if (includeEmpty) {
+      const allRecords = await fetchAll(null);
+      const emptyRecords = allRecords.filter(record => {
+        const statusValue = record.fields[statusField];
+        return !statusValue || statusValue === '';
+      });
+
+      const seen = new Set(records.map(r => r.record_id));
+      emptyRecords.forEach(r => {
+        if (!seen.has(r.record_id)) {
+          records.push(r);
+        }
+      });
+    }
+
+    return records;
   }
 
   /**

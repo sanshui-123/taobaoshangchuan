@@ -73,6 +73,26 @@ async function fillTitleAndCategory(page, productData, logger = console) {
   logger.info('\n========== 填写商品标题和分类 ==========');
 
   try {
+    // 若有素材库弹窗遮罩，先点击“图文描述”Tab关闭再操作标题
+    try {
+      const overlay = page.locator('.next-overlay-wrapper.v2.opened');
+      if (await overlay.count()) {
+        logger.info('  ⚠️ 检测到素材库遮罩，点击图文描述Tab关闭');
+        const tab = page.locator('li:has-text("图文描述")');
+        if (await tab.count()) {
+          await tab.first().click({ force: true });
+          await page.waitForTimeout(800);
+        }
+        await page.evaluate(() => {
+          document.querySelectorAll('.next-overlay-wrapper.v2.opened, #mainImagesGroup').forEach(el => el.remove());
+        }).catch(() => {});
+        await page.waitForTimeout(200);
+        logger.info('  ✅ 图文描述Tab已点击，遮罩已清理');
+      }
+    } catch (e) {
+      logger.warn(`  ⚠️ 清理遮罩时异常（忽略继续）: ${e.message}`);
+    }
+
     // ==================== 第一部分：填写商品标题 ====================
     logger.info('\n[步骤1] 填写商品标题');
     logger.info(`  标题内容: ${productData.title}`);
