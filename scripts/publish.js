@@ -206,9 +206,17 @@ async function runSteps(options) {
     if (status === 'done') {
       console.log(`✅ [Step ${stepId}] 完成`);
 
-      // Step3（登录验证）完成后，自动调用素材库上传
+      // Step3（登录验证）完成后，自动调用素材库上传（仅成功一次）
       if (stepId === 3) {
         console.log('\n--- [Step 3.5 - 素材库上传] 开始 ---');
+        const currentCache = loadTaskCache(currentProductId);
+
+        // 如果已成功上传过素材，跳过重复上传
+        if (currentCache.materialUploadDone) {
+          console.log('🚫 已检测到素材库上传成功记录，跳过重复上传');
+          return;
+        }
+
         try {
           const uploadResult = await uploadImages(currentProductId);
 
@@ -217,6 +225,10 @@ async function runSteps(options) {
             if (options.verbose) {
               console.log(`   上传文件数: ${uploadResult.uploadedFiles}`);
             }
+
+            // 标记缓存，避免后续重跑重复上传
+            currentCache.materialUploadDone = true;
+            saveTaskCache(currentProductId, currentCache);
           } else {
             console.log(`⚠️  [Step 3.5 - 素材库上传] 失败: ${uploadResult.message}`);
             console.log('   继续执行后续步骤...');
