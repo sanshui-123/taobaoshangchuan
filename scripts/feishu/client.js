@@ -224,7 +224,8 @@ class FeishuClient {
    * 支持 FEISHU_TARGET_STATUS 环境变量指定多个状态，用逗号分隔
    * 例如：FEISHU_TARGET_STATUS="待检测,待上传"
    */
-  async getAllRecords() {
+  async getAllRecords(options = {}) {
+    const allowDone = options.allowDone || false;
     // 解析目标状态列表
     const targetStatusEnv = process.env.FEISHU_TARGET_STATUS;
     console.log('[飞书-DEBUG] FEISHU_TARGET_STATUS:', targetStatusEnv);
@@ -251,8 +252,18 @@ class FeishuClient {
         console.log('[飞书] ✅ 配置包含空状态，将同时获取状态为空的记录');
       }
 
-      if (targetStatuses.includes(doneValue) || targetStatuses.includes(errorValue) || includeEmpty) {
-        console.warn('[飞书] ⚠️ FEISHU_TARGET_STATUS 包含已完成/失败/空值，可能导致已处理记录被重新拉取。如非必要，请移除这些状态。');
+      const hasDoneLike = targetStatuses.includes(doneValue) || targetStatuses.includes(errorValue) || includeEmpty;
+      if (hasDoneLike) {
+        if (!allowDone) {
+          // 过滤掉已完成/失败/空值，提示用户需要显式开启
+          targetStatuses = targetStatuses.filter(s => s && s !== doneValue && s !== errorValue);
+          if (includeEmpty) {
+            includeEmpty = false; // 不再包含空值
+          }
+          console.warn('[飞书] ⚠️ 已过滤已完成/失败/空状态记录。使用 --allow-done 可重跑这些记录。');
+        } else {
+          console.warn('[飞书] ⚠️ FEISHU_TARGET_STATUS 包含已完成/失败/空值，将按配置拉取（已启用 --allow-done）。');
+        }
       }
     } else {
       // 默认只获取"待检测"状态

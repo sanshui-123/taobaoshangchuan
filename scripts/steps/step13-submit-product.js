@@ -315,7 +315,7 @@ const step13 = async (ctx) => {
       }
     }
 
-    // 步骤6：更新飞书状态为"已上传到淘宝"（只写状态，不回填链接/商品ID）
+    // 步骤6：更新飞书状态为"已上传到淘宝"（只写流程状态，不回填链接/商品ID）
     ctx.logger.info('\n[步骤6] 更新飞书状态');
 
     // 从 ctx 或 taskCache 中获取飞书记录ID
@@ -324,9 +324,10 @@ const step13 = async (ctx) => {
     if (feishuRecordId) {
       const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
       const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+      const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
 
       const updateFields = {
-        [process.env.FEISHU_STATUS_FIELD || '上传状态']: submitResult.status === 'success' ? doneValue : errorValue
+        [statusField]: submitResult.status === 'success' ? doneValue : errorValue
       };
 
       // 不再覆盖飞书原始商品链接，若需要淘宝链接可单独添加字段

@@ -66,7 +66,9 @@ program
   .option('--brand <name>', '只处理指定品牌')
   .option('--category <name>', '只处理指定品类')
   .option('--gender <name>', '只处理指定性别')
-  .option('--no-material-upload', '跳过 Step3.5 素材库上传（用于复跑后续步骤）');
+  .option('--no-material-upload', '跳过 Step3.5 素材库上传（用于复跑后续步骤）')
+  .option('--force-partial', '即便素材上传失败也强制回写“前三步已更新”')
+  .option('--allow-done', '允许拉取已完成/失败/空状态记录（默认会过滤）');
 
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
@@ -131,6 +133,11 @@ async function runSteps(options) {
   // 详细模式下显示配置信息
   if (options.verbose) {
     printConfig();
+  }
+
+  // 日志目录提示（无论自动取单还是手动）
+  if (productId) {
+    console.log(`🗂️  日志目录: logs/${productId}`);
   }
 
   // 加载或创建任务缓存（自动模式下使用临时ID）
@@ -223,8 +230,9 @@ async function runSteps(options) {
           return;
         }
 
+        let uploadResult = null;
         try {
-          const uploadResult = await uploadImages(currentProductId);
+          uploadResult = await uploadImages(currentProductId);
 
           if (uploadResult.success) {
             console.log(`✅ [Step 3.5 - 素材库上传] 完成 - ${uploadResult.message}`);
@@ -248,11 +256,14 @@ async function runSteps(options) {
         try {
           const partialValue = process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新';
           const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
-          if (sharedContext.feishuRecordId) {
+          const shouldMarkPartial = options.forcePartial || (uploadResult && uploadResult.success);
+          if (shouldMarkPartial && sharedContext.feishuRecordId) {
             await feishuClient.updateRecord(sharedContext.feishuRecordId, {
               [statusField]: partialValue
             });
             console.log(`✅ 已回写飞书状态为"${partialValue}"，下次将从Step4开始`);
+          } else if (!shouldMarkPartial) {
+            console.log('⏸️  素材上传失败，未回写“前三步已更新”；下次仍会执行前置步骤');
           }
         } catch (err) {
           console.log(`⚠️ 回写飞书部分状态失败: ${err.message}`);

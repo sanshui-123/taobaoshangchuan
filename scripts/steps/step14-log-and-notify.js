@@ -60,7 +60,7 @@ const step14 = async (ctx) => {
 
     if (ctx.feishuRecordId) {
       const updateFields = {
-        [process.env.FEISHU_STATUS_FIELD || 'status']: report.summary.status === 'success' ? '已完成' : '发布失败',
+        [process.env.FEISHU_STATUS_SUMMARY_FIELD || 'status']: report.summary.status === 'success' ? '已完成' : '发布失败',
         [process.env.FEISHU_DURATION_FIELD || 'duration']: `${duration}秒`,
         [process.env.FEISHU_REPORT_FIELD || 'report']: reportFile
       };

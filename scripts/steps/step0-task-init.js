@@ -43,7 +43,7 @@ const step0 = async (ctx) => {
       ctx.logger.info(`使用指定商品ID: ${ctx.productId}`);
 
       // 获取所有记录
-      const allRecords = await feishuClient.getAllRecords();
+      const allRecords = await feishuClient.getAllRecords({ allowDone: ctx.options?.allowDone });
 
       // 查找匹配的记录
       const record = allRecords.find(r => {
@@ -64,7 +64,7 @@ const step0 = async (ctx) => {
       await processRecord(record, ctx, { partialValue, skipPhaseARef });
     } else {
       // 获取所有待发布记录
-      let records = await feishuClient.getAllRecords();
+      let records = await feishuClient.getAllRecords({ allowDone: ctx.options?.allowDone });
       ctx.logger.info(`找到 ${records.length} 条待发布记录`);
 
       // 根据品牌筛选

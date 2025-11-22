@@ -120,7 +120,7 @@ exports.printConfig = () => {
   console.log(`  配置文件: ${configFileName}`);
   console.log(`  飞书App ID: ${process.env.FEISHU_APP_ID?.substring(0, 8)}...`);
   const statusFieldPrimary = process.env.FEISHU_STATUS_FIELD || '上传状态';
-  const statusFieldSummary = process.env.FEISHU_STATUS_FIELD || 'status';
+  const statusFieldSummary = process.env.FEISHU_STATUS_SUMMARY_FIELD || 'status';
   console.log(`  状态字段(流程): ${statusFieldPrimary}`);
   console.log(`  状态字段(汇总): ${statusFieldSummary}`);
   console.log(`  淘宝截图目录: ${exports.TAOBAO_CONFIG.SCREENSHOT_DIR}`);
