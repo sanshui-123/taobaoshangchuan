@@ -605,16 +605,19 @@ const step4 = async (ctx) => {
     process.stdout.write('.');
   }, 5000);
 
+  // 预加载缓存，后续选择模板/颜色尺码依赖
+  const cache = loadTaskCache(ctx.productId);
+
   let context;
   let page;
   let page1; // 发布页面
 
-  try {
-    // 获取配置
-    const timeout = parseInt(process.env.TAOBAO_TIMEOUT || '30000');
-    const screenshotDir = process.env.TAOBAO_SCREENSHOT_DIR ||
-      path.resolve(process.cwd(), 'screenshots');
+  // 获取配置（需要在 catch 中使用，提前定义作用域）
+  const timeout = parseInt(process.env.TAOBAO_TIMEOUT || '30000');
+  const screenshotDir = process.env.TAOBAO_SCREENSHOT_DIR ||
+    path.resolve(process.cwd(), 'screenshots');
 
+  try {
     // 确保截图目录存在
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
@@ -630,7 +633,7 @@ const step4 = async (ctx) => {
     page.setDefaultTimeout(timeout);
     page.setDefaultNavigationTimeout(timeout);
 
-    // 只使用模板商品ID，直达发布页
+    // 只使用模板商品ID，直达发布页（PEARLY GATES 使用专属模板）
     const brand = cache?.productData?.brand || '';
     const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
     const defaultTemplateId = process.env.TEMPLATE_ITEM_ID ||
@@ -708,7 +711,7 @@ const step4 = async (ctx) => {
     // ============================================
 
     // 从缓存中获取颜色和尺码列表
-    const taskCacheData = loadTaskCache(ctx.productId);
+    const taskCacheData = cache || loadTaskCache(ctx.productId);
     let colors = [];
     let sizes = [];
 
@@ -732,6 +735,15 @@ const step4 = async (ctx) => {
           return s.sizeName || s.name || s;
         });
       }
+    }
+
+    // 品牌特殊处理：PEARLY GATES 颜色第一项插入固定提示
+    const specialColorNote = '3=S，4=M，5=L，6=XL，7=XXL';
+    const brandName = taskCacheData?.productData?.brand || '';
+    if (brandName === 'PEARLY GATES') {
+      colors = colors.filter(c => c && c !== specialColorNote);
+      colors = [specialColorNote, ...colors];
+      ctx.logger.info(`  品牌为 PEARLY GATES，颜色首项插入提示: ${specialColorNote}`);
     }
 
     ctx.logger.info(`\n从缓存获取数据:`);
