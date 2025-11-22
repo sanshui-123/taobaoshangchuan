@@ -631,16 +631,25 @@ const step4 = async (ctx) => {
     page.setDefaultNavigationTimeout(timeout);
 
     // 只使用模板商品ID，直达发布页
-    const templateItemId = ctx.templateItemId ||
-      process.env.TEMPLATE_ITEM_ID ||
+    const brand = cache?.productData?.brand || '';
+    const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
+    const defaultTemplateId = process.env.TEMPLATE_ITEM_ID ||
       (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
+
+    const templateItemId = brand === 'PEARLY GATES'
+      ? pearlyTemplateId
+      : (ctx.templateItemId || defaultTemplateId);
 
     if (!templateItemId) {
       throw new Error('未配置 TEMPLATE_ITEM_ID（或 ctx.templateItemId），无法直达发布页面');
     }
 
     ctx.logger.info('🚀 使用模板商品直达发布页面...');
-    ctx.logger.info(`模板商品ID: ${templateItemId}`);
+    if (brand === 'PEARLY GATES') {
+      ctx.logger.info(`品牌为 PEARLY GATES，使用专属模板ID: ${templateItemId}`);
+    } else {
+      ctx.logger.info(`模板商品ID: ${templateItemId}`);
+    }
 
     const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);

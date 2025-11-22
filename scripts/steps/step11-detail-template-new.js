@@ -52,11 +52,16 @@ const step11Detail = async (ctx) => {
     await page.locator('#panel_edit').getByText('模板', { exact: true }).click();
     await page.waitForTimeout(500);
 
-    // 选择"卡-LL="模板
-    await page.getByText('卡-LL=').click();
+    // 按品牌选择模板：PEARLY GATES 用专属模板，其余用默认
+    const templateName = productData.brand === 'PEARLY GATES'
+      ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
+      : (process.env.DETAIL_TEMPLATE_DEFAULT || '卡-LL=');
+
+    const templateOption = page.getByText(templateName, { exact: true });
+    await templateOption.click();
     await page.waitForTimeout(500);  // 优化：1000ms降到500ms
 
-    ctx.logger.info('  ✅ 已选择模板: 卡-LL=');
+    ctx.logger.info(`  ✅ 已选择模板: ${templateName}`);
 
     // ==================== 步骤3：点击模板内容中的图片打开编辑弹窗 ====================
     ctx.logger.info('\n[步骤3] 打开模板编辑弹窗');

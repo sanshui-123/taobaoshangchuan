@@ -548,8 +548,16 @@ async function step4(ctx) {
 
     // 使用直达链接打开发布页面（优化版）
     ctx.logger.info('🚀 使用模板商品直达发布页面...');
-    const templateItemId = process.env.TB_TEMPLATE_ITEM_ID || '991550105366';
-    ctx.logger.info(`模板商品ID: ${templateItemId}`);
+    // 按品牌选择模板ID（PEARLY GATES 使用专属模板，否则用默认）
+    const brand = cache?.productData?.brand || '';
+    const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
+    const defaultTemplateId = process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
+    const templateItemId = brand === 'PEARLY GATES' ? pearlyTemplateId : defaultTemplateId;
+    if (brand === 'PEARLY GATES') {
+      ctx.logger.info(`品牌为 PEARLY GATES，使用专属模板ID: ${templateItemId}`);
+    } else {
+      ctx.logger.info(`模板商品ID: ${templateItemId}`);
+    }
 
     const publishUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${publishUrl}`);
