@@ -60,7 +60,7 @@ const step7 = async (ctx) => {
     // 点击切换到销售信息
     await salesTab.click();
     ctx.logger.success('✅ 已切换到"销售信息"tab');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(300);
 
     // ============================================
     // 步骤2：填写"商家编码"（销售信息页签）
@@ -95,11 +95,11 @@ const step7 = async (ctx) => {
     // 滚动到视口
     ctx.logger.info('  滚动到商家编码字段...');
     await merchantCodeInput.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(200);
 
     // 等待可见和可编辑
     ctx.logger.info('  等待商家编码输入框可见...');
-    await merchantCodeInput.waitFor({ state: 'visible', timeout: 10000 });
+    await merchantCodeInput.waitFor({ state: 'visible', timeout: 8000 });
 
     const merchantCodeEditable = await merchantCodeInput.isEditable();
     ctx.logger.info(`  商家编码输入框可编辑状态: ${merchantCodeEditable}`);
@@ -111,9 +111,9 @@ const step7 = async (ctx) => {
     // 填写商家编码（fill方法会自动清空旧值）
     ctx.logger.info(`  ⚙️ [销售信息] 商家编码 → ${productId}`);
     await merchantCodeInput.click();  // 先点击获得焦点
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(150);
     await merchantCodeInput.fill(productId);  // fill会自动清空并填入
-    await page.waitForTimeout(800);  // 等待值生效
+    await page.waitForTimeout(200);  // 等待值生效
 
     // 验证填写结果
     const merchantCodeValue = await merchantCodeInput.inputValue();
@@ -155,7 +155,7 @@ const step7 = async (ctx) => {
     // 点击切换到基础信息
     await basicTab.click();
     ctx.logger.success('✅ 已切换到"基础信息"tab');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(300);
 
     // ============================================
     // 步骤4：填写"货号"（基础信息页签）
@@ -195,11 +195,11 @@ const step7 = async (ctx) => {
     // 滚动到视口（货号字段可能在页面下方）
     ctx.logger.info('  滚动到货号字段...');
     await skuInput.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(200);
 
     // 等待可见和可编辑
     ctx.logger.info('  等待货号输入框可见...');
-    await skuInput.waitFor({ state: 'visible', timeout: 10000 });
+    await skuInput.waitFor({ state: 'visible', timeout: 8000 });
 
     const skuEditable = await skuInput.isEditable();
     ctx.logger.info(`  货号输入框可编辑状态: ${skuEditable}`);
@@ -211,9 +211,9 @@ const step7 = async (ctx) => {
     // 填写货号（fill方法会自动清空旧值）
     ctx.logger.info(`  ⚙️ [基础信息] 货号 → ${productId}`);
     await skuInput.click();  // 先点击获得焦点
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(150);
     await skuInput.fill(productId);  // fill会自动清空并填入
-    await page.waitForTimeout(800);  // 等待值生效
+    await page.waitForTimeout(200);  // 等待值生效
 
     // 验证填写结果
     const skuValue = await skuInput.inputValue();

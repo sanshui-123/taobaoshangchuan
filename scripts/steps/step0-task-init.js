@@ -25,6 +25,22 @@ const normalizeProductId = (id) => {
   return String(id).trim().replace(/^0+/, '');
 };
 
+// 将后续步骤全部标记为 skipped，并持久化缓存
+function markAllSkipped(productId) {
+  const existing = loadTaskCache(productId) || {};
+  const cache = {
+    ...existing,
+    productId,
+    stepStatus: {}
+  };
+  // Step0 已完成，其余全部 skipped
+  cache.stepStatus[0] = 'done';
+  for (let i = 1; i <= 14; i++) {
+    cache.stepStatus[i] = 'skipped';
+  }
+  saveTaskCache(productId, cache);
+}
+
 /**
  * 步骤0：任务初始化
  * 从飞书获取待发布商品数据
@@ -398,6 +414,9 @@ async function processRecord(record, ctx, opts = {}) {
   // 状态不是"待上传"且不是部分完成，则跳过处理
   if (currentStatus !== pendingValue && currentStatus !== partialValue) {
     ctx.logger.info(`当前状态为"${currentStatus}"，跳过处理`);
+    // 将后续步骤全部标记为 skipped，避免后续误执行
+    markAllSkipped(productId);
+    ctx.logger.info('已将步骤1-14标记为 skipped');
     return;
   }
 

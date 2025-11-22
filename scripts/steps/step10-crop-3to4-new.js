@@ -32,7 +32,7 @@ const step10Crop = async (ctx) => {
 
     try {
       await page.getByText('3:4主图图片要求：宽高比为3:4，推荐尺寸').scrollIntoViewIfNeeded();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(300);
       ctx.logger.info('  ✅ 已定位到3:4主图区域');
     } catch (e) {
       ctx.logger.info('  ℹ️ 尝试其他方式定位3:4主图区域');
@@ -40,7 +40,7 @@ const step10Crop = async (ctx) => {
       const cropSection = page.locator('text=3:4主图').first();
       if (await cropSection.isVisible()) {
         await cropSection.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(300);
       }
     }
 
@@ -54,7 +54,7 @@ const step10Crop = async (ctx) => {
     // ==================== 步骤3：等待裁剪完成 ====================
     ctx.logger.info('\n[步骤3] 等待裁剪完成');
 
-    await page.waitForTimeout(500);  // 优化：2000ms降到500ms
+    await page.waitForTimeout(300);  // 优化：缩短等待
     ctx.logger.info('  ✅ 裁剪处理完成');
 
     // ==================== 步骤4：保存结果 ====================

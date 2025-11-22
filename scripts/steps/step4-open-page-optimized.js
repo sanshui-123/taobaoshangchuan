@@ -616,7 +616,17 @@ async function step4(ctx) {
       throw new Error('缓存中没有商品数据，请先执行步骤3');
     }
 
-    const { colors = [], sizes = [] } = cache.productData;
+    let { colors = [], sizes = [] } = cache.productData;
+
+    // 品牌特殊处理：PEARLY GATES 在颜色第一项插入固定提示
+    const specialColorNote = '3=S，4=M，5=L，6=XL，7=XXL';
+    if (brand === 'PEARLY GATES') {
+      colors = colors.map(c => (typeof c === 'string' ? c : (c?.colorName || c?.name || c)));
+      // 去重避免重复插入
+      colors = colors.filter(c => c && c !== specialColorNote);
+      colors = [specialColorNote, ...colors];
+      ctx.logger.info(`  品牌为 PEARLY GATES，颜色首项插入提示: ${specialColorNote}`);
+    }
 
     ctx.logger.info('\n从缓存获取数据:');
     ctx.logger.info(`  颜色: ${colors.join(', ')}`);

@@ -664,11 +664,11 @@ const step4 = async (ctx) => {
     });
 
     try {
-      await page.waitForLoadState('networkidle', { timeout: 10000 });
+      await page.waitForLoadState('networkidle', { timeout: 5000 });
     } catch (e) {
       ctx.logger.warn('发布页未达到完全空闲状态，但继续执行（正常现象）');
     }
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(800);
 
     const currentUrl = page.url();
     if (currentUrl.includes('login') || currentUrl.includes('passport')) {
@@ -685,11 +685,11 @@ const step4 = async (ctx) => {
 
     // 等待发布页面加载（使用 try-catch 避免 networkidle 超时）
     try {
-      await page1.waitForLoadState('networkidle', { timeout: 10000 });
+      await page1.waitForLoadState('networkidle', { timeout: 5000 });
     } catch (e) {
       ctx.logger.warn('发布页面未达到完全空闲状态，但继续执行');
     }
-    await page1.waitForTimeout(3000);
+    await page1.waitForTimeout(800);
 
     // 验证页面是否正确加载
     const pageTitle = await page1.title();

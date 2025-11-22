@@ -88,7 +88,7 @@ const step13 = async (ctx) => {
       }
     }
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(800);
 
     // 步骤1：提交前验证
     ctx.logger.info('\n[步骤1] 提交前验证');
@@ -185,7 +185,7 @@ const step13 = async (ctx) => {
       const maxChecks = 30; // 最多检查30次，每次1秒
 
       while (checkCount < maxChecks) {
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(800);
 
         try {
           const currentUrl = page.url();
@@ -272,7 +272,7 @@ const step13 = async (ctx) => {
 
       // 等待页面稳定
       try {
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(800);
       } catch (waitError) {
         ctx.logger.warn(`等待页面稳定失败: ${waitError.message}`);
       }

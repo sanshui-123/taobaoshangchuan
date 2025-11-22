@@ -72,7 +72,7 @@ const step9 = async (ctx) => {
     if (sizeConfigButton) {
       ctx.logger.info('找到尺码配置按钮');
       await sizeConfigButton.click();
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
     }
 
     // 查找尺码区域
@@ -205,7 +205,7 @@ async function handleMatrixMode(page, colors, sizes, results, ctx) {
 
   // 验证矩阵生成
   ctx.logger.info('  验证SKU矩阵生成...');
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(800);
 }
 
 /**

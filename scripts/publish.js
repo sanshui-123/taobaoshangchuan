@@ -257,11 +257,17 @@ async function runSteps(options) {
           const partialValue = process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新';
           const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
           const shouldMarkPartial = options.forcePartial || (uploadResult && uploadResult.success);
-          if (shouldMarkPartial && sharedContext.feishuRecordId) {
-            await feishuClient.updateRecord(sharedContext.feishuRecordId, {
+          // 兼容未执行 Step0 的场景：从缓存补足 feishuRecordId
+          const cacheForId = loadTaskCache(resolveProductId());
+          const recordId = sharedContext.feishuRecordId || cacheForId?.feishuRecordId;
+
+          if (shouldMarkPartial && recordId) {
+            await feishuClient.updateRecord(recordId, {
               [statusField]: partialValue
             });
             console.log(`✅ 已回写飞书状态为"${partialValue}"，下次将从Step4开始`);
+          } else if (shouldMarkPartial && !recordId) {
+            console.log('⚠️ 未找到飞书记录ID，无法回写“前三步已更新”');
           } else if (!shouldMarkPartial) {
             console.log('⏸️  素材上传失败，未回写“前三步已更新”；下次仍会执行前置步骤');
           }
@@ -276,6 +282,14 @@ async function runSteps(options) {
         if (refreshedCache && refreshedCache.stepStatus) {
           Object.assign(stepStatus, refreshedCache.stepStatus);
           console.log('🔄 已同步 Step0 更新的步骤状态到内存，用于后续跳过判断');
+
+          // 如果后续步骤全部为 skipped，则直接终止流程
+          const allSkipped = stepsToRun
+            .filter(s => s !== 0)
+            .every(s => refreshedCache.stepStatus[s] === 'skipped');
+          if (allSkipped) {
+            console.log('🚫 当前记录状态非待处理，后续步骤全部标记为 skipped，结束流程');
+          }
         }
       }
     } else {
