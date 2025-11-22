@@ -238,7 +238,7 @@ const step5 = async (ctx) => {
 
     // 点击后等待弹窗开始加载
     ctx.logger.info('等待弹窗开始出现...');
-    await page.waitForTimeout(1500);  // 减少等待时间，因为前面已经等了500ms
+    await page.waitForTimeout(800);  // 缩短固定等待
 
     // 调试截图：查看点击后的状态
     const debugScreenshotAfter = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click.png';
@@ -252,13 +252,14 @@ const step5 = async (ctx) => {
     await scrollToTop();
     await page.waitForTimeout(500);
 
-    // 等待弹窗出现（增强版：增加等待时间和多种检测方式）
+    // 等待弹窗出现（限时 8 秒）
     ctx.logger.info('\n等待"选择图片"弹窗出现...');
 
     let popupDetected = false;
+    const popupStart = Date.now();
     try {
       // 方式1：等待 iframe（素材库通常在 iframe 中）
-      await page.waitForSelector('iframe', { timeout: 15000 });
+      await page.waitForSelector('iframe', { timeout: 5000 });
       ctx.logger.success('✅ 检测到 iframe');
       popupDetected = true;
     } catch (e) {
@@ -268,7 +269,7 @@ const step5 = async (ctx) => {
     if (!popupDetected) {
       try {
         // 方式2：等待素材库特征元素
-        await page.waitForSelector('.next-dialog, [class*="material"], [class*="upload"]', { timeout: 10000 });
+        await page.waitForSelector('.next-dialog, [class*="material"], [class*="upload"]', { timeout: 3000 });
         ctx.logger.success('✅ 检测到弹窗元素');
         popupDetected = true;
       } catch (e) {
@@ -276,9 +277,13 @@ const step5 = async (ctx) => {
       }
     }
 
-    // 等待弹窗内容加载（优化：从5秒降到500ms）
+    if (!popupDetected || Date.now() - popupStart > 8000) {
+      throw new Error('等待素材库弹窗超时');
+    }
+
+    // 等待弹窗内容加载（最长 0.5 秒）
     ctx.logger.info('等待弹窗内容加载...');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(200);
     ctx.logger.success('✅ 弹窗加载完成');
 
     // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
@@ -338,12 +343,10 @@ const step5 = async (ctx) => {
       await searchInput.fill(productId);
       ctx.logger.success(`  ✅ 已输入商品ID: ${productId}`);
 
-      // 等待下拉建议出现（增加等待时间并主动检测）
+      // 等待下拉建议出现（最多 3 秒，每 0.5 秒检查一次）
       ctx.logger.info('  ⏳ 等待下拉建议出现...');
-
-      // 智能等待：检测下拉列表是否出现（最多等待5秒）
       let suggestionAppeared = false;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 6; i++) {
         await page.waitForTimeout(500);
 
         // 检查是否有下拉菜单出现（使用工作定位器）
@@ -353,16 +356,14 @@ const step5 = async (ctx) => {
           suggestionAppeared = true;
           break;
         }
-
-        // 等待中...
       }
 
       if (!suggestionAppeared) {
         ctx.logger.warn('  ⚠️  下拉建议未出现，继续尝试点击');
       }
 
-      // 额外等待500ms确保渲染完成
-      await page.waitForTimeout(500);
+      // 额外等待300ms确保渲染完成
+      await page.waitForTimeout(300);
 
       // 查找并点击下拉建议中的文件夹项
       ctx.logger.info('  🎯 尝试点击下拉建议...');
@@ -420,8 +421,8 @@ const step5 = async (ctx) => {
         'div[class*="pic"]:has(img)'          // 兜底
       ];
 
-      // 最多等待10秒，每0.5秒检查一次
-      for (let i = 0; i < 20; i++) {
+      // 最多等待6秒，每0.5秒检查一次
+      for (let i = 0; i < 12; i++) {
         await page.waitForTimeout(500);
 
         for (const selector of imageCardSelectors) {
@@ -437,11 +438,11 @@ const step5 = async (ctx) => {
       }
 
       if (!imagesLoaded) {
-        ctx.logger.warn('  ⚠️  图片卡片未在10秒内加载，继续执行...');
+        ctx.logger.warn('  ⚠️  图片卡片未在6秒内加载，继续执行...');
       }
 
-      // 额外等待500ms确保动画完成
-      await page.waitForTimeout(500);
+      // 额外等待300ms确保动画完成
+      await page.waitForTimeout(300);
 
       // 调试截图：查看文件夹打开后的状态
       const debugScreenshotFolder = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_folder_opened.png';
@@ -541,17 +542,9 @@ const step5 = async (ctx) => {
     ctx.logger.info('  ✅ 复用搜索时的定位器（确保在同一iframe上下文）');
 
     try {
-      // 设置排序方式为文件名升序（可选，根据需要）
-      ctx.logger.info('\n  设置文件名升序');
-      try {
-        await uploadLocator.locator('.next-btn:has-text("文件名")').click();
-        await page.waitForTimeout(500);
-        await uploadLocator.locator('text=文件名升序').click();
-        ctx.logger.success('  ✅ 已设置文件名升序');
-      } catch (e) {
-        ctx.logger.warn('  设置排序失败，继续执行');
-      }
-      await page.waitForTimeout(1000);
+      // 跳过排序，直接选择图片
+      ctx.logger.info('\n  跳过排序，直接选择图片');
+      await page.waitForTimeout(200);
 
       // 步骤6：检查并选择图片
       ctx.logger.info('\n[步骤6] 选择图片');
@@ -604,7 +597,79 @@ const step5 = async (ctx) => {
       );
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // 直接标记为完成，不再等待弹窗关闭或验证上传结果
+      // ==================== 上传完成检查（限时） ====================
+      ctx.logger.info('\n[步骤7] 检查上传完成状态...');
+      let uploadComplete = false;
+      const uploadStart = Date.now();
+      const successMessages = [
+        '.upload-success:has-text("成功")',
+        '.next-message:has-text("上传成功")',
+        '.upload-complete:has-text("完成")',
+        '[class*="success"]:has-text("上传")',
+        'text=上传成功',
+        'text=文件上传成功',
+        'text=批量上传成功'
+      ];
+
+      for (let i = 0; i < 8; i++) {
+        // 检查成功提示
+        let successDetected = false;
+        for (const selector of successMessages) {
+          const visible = await page.locator(selector).first().isVisible({ timeout: 300 }).catch(() => false);
+          if (visible) {
+            ctx.logger.info(`✅ 检测到上传成功提示: ${selector}`);
+            successDetected = true;
+            break;
+          }
+        }
+
+        // 检查进度条/加载
+        const progressBars = await page.locator('.next-progress-line, .upload-progress, .progress-bar, [class*="progress"]').count().catch(() => 0);
+        const loadingCount = await page.locator('.next-loading, .loading, .spinner').count().catch(() => 0);
+
+        if (successDetected || (progressBars === 0 && loadingCount === 0)) {
+          uploadComplete = true;
+          break;
+        }
+
+        if (Date.now() - uploadStart > 8000) break;
+        await page.waitForTimeout(1000);
+      }
+
+      if (!uploadComplete) {
+        ctx.logger.warn('⚠️ 上传完成检查超时，继续后续流程（可能已上传）');
+      } else {
+        ctx.logger.info('✅ 上传完成检查通过');
+      }
+
+      // ==================== 文件列表验证（限 3 次） ====================
+      ctx.logger.info('\n[步骤8] 验证文件是否出现在列表中...');
+      const fileSelectors = [
+        'img[src*="color_"]',
+        '.file-item img[src*="color_"]',
+        '[class*="file"] img[src*="color_"]',
+        '.image-item img[src*="color_"]',
+        '.material-item img[src*="color_"]'
+      ];
+      let filesDetected = false;
+      for (let i = 0; i < 3; i++) {
+        ctx.logger.info(`[步骤8-详细] 第${i + 1}次检查文件列表...`);
+        for (const selector of fileSelectors) {
+          const count = await uploadLocator.locator(selector).count().catch(() => 0);
+          if (count > 0) {
+            ctx.logger.info(`✅ 找到 ${count} 个文件匹配 ${selector}`);
+            filesDetected = true;
+            break;
+          }
+        }
+        if (filesDetected) break;
+        await page.waitForTimeout(1000);
+      }
+      if (!filesDetected) {
+        ctx.logger.warn('⚠️ 未能在文件列表中找到上传的color图片，可能页面渲染延迟或结构变化');
+      }
+
+      // 标记完成
       taskCache.stepStatus[5] = 'done';
       saveTaskCache(productId, taskCache);
       updateStepStatus(productId, 5, 'done');
