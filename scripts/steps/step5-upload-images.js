@@ -762,9 +762,10 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   ctx.logger.info(`  颜色数: ${colorCount}`);
   ctx.logger.info(`  总图片数: ${imageCount}`);
 
-  // ========== Le Coq 品牌特例 ==========
-  if (brand === 'Le Coq公鸡乐卡克') {
-    ctx.logger.info(`  ✨ Le Coq 品牌：直接从最后往前取 5 张主图\n`);
+  // ========== Le Coq / PEARLY GATES 品牌特例 ==========
+  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES'];
+  if (specialBrands.includes(brand)) {
+    ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 
     // 缓存所有图片元素
     const cardLocator = uploadFrame.locator(imageCardSelector || '.PicList_pic_background__pGTdV');
@@ -809,7 +810,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    ctx.logger.info(`\n✅ Le Coq 图片选择完成：成功 ${selectedCount}/${selectCount} 张\n`);
+    ctx.logger.info(`\n✅ 品牌特例图片选择完成：成功 ${selectedCount}/${selectCount} 张\n`);
     return selectedCount;
   }
 
