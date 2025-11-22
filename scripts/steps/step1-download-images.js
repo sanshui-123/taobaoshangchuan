@@ -4,6 +4,60 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const sharp = require('sharp');
+const { https: followHttps, http: followHttp } = require('follow-redirects');
+
+// 通用请求头，尽量模拟真实浏览器
+const COMMON_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'image/jpeg,image/png,image/gif,image/*,*/*;q=0.8',
+  'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache'
+};
+
+async function downloadWithRedirects(url, referer, logger, maxHops = 20) {
+  // 手工处理重定向，记录首跳，避免自循环
+  let current = url;
+  const visited = new Set();
+  let firstRedirect = null;
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    const resp = await axios.get(current, {
+      responseType: 'arraybuffer',
+      timeout: 45000,
+      maxRedirects: 0, // 手工跟踪
+      validateStatus: status => status >= 200 && status < 400,
+      proxy: false, // 禁用代理，避免重定向循环
+      headers: {
+        ...COMMON_HEADERS,
+        Referer: referer || COMMON_HEADERS.Referer || 'https://www.callawaygolf.jp/'
+      }
+    });
+
+    if (resp.status >= 300 && resp.status < 400) {
+      const loc = resp.headers.location;
+      if (!loc) {
+        throw new Error(`收到重定向但无 Location，状态码 ${resp.status}`);
+      }
+      const next = new URL(loc, current).href;
+      if (!firstRedirect) firstRedirect = `${current} -> ${next}`;
+      if (visited.has(next)) {
+        throw new Error(`重定向循环，最后跳转: ${next}`);
+      }
+      visited.add(next);
+      current = next;
+      continue;
+    }
+
+    // 200 OK
+    if (firstRedirect) {
+      logger?.info?.(`    🔄 首个重定向: ${firstRedirect}`);
+    }
+    return Buffer.from(resp.data);
+  }
+
+  throw new Error(`重定向过多(>${maxHops})，最后URL: ${current}`);
+}
 
 /**
  * 步骤1：下载图片
@@ -149,27 +203,59 @@ const step1 = async (ctx) => {
         let imageBuffer;
 
         if (imageIdentifier && imageIdentifier.startsWith('https://')) {
-          // 如果是URL，使用axios直接下载
+          // 如果是URL，使用手工重定向跟踪，必要时尝试无query的干净URL
           ctx.logger.info(`    📥 使用URL下载图片`);
-          const response = await axios.get(imageIdentifier, {
-            responseType: 'arraybuffer',
-            timeout: 45000,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/jpeg,image/png,image/gif,image/*,*/*;q=0.8',  // 不接受 webp
-              'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Referer': 'https://www.callawaygolf.jp/',
-              'Cache-Control': 'no-cache'
-            }
-          });
-          imageBuffer = Buffer.from(response.data);
 
-          // 检测并转换 webp 为 jpg
-          const contentType = response.headers['content-type'] || '';
-          if (contentType.includes('webp') || imageIdentifier.toLowerCase().endsWith('.webp')) {
-            ctx.logger.info(`    🔄 检测到 webp 格式，转换为 jpg...`);
-            imageBuffer = await sharp(imageBuffer).jpeg({ quality: 95 }).toBuffer();
+          const isMixTokyo = imageIdentifier.includes('mix.tokyo/cdn/shop/files/');
+          const cleanUrl = isMixTokyo ? imageIdentifier.split('?')[0] : imageIdentifier;
+
+          let responseData;
+          try {
+            responseData = await downloadWithRedirects(
+              imageIdentifier,
+              isMixTokyo ? 'https://mix.tokyo/' : 'https://www.callawaygolf.jp/',
+              ctx.logger
+            );
+          } catch (e) {
+            if (isMixTokyo) {
+              ctx.logger.warn(`    ⚠️ 原始URL下载失败(${e.message})，尝试去掉参数的URL`);
+              responseData = await downloadWithRedirects(
+                cleanUrl,
+                'https://mix.tokyo/',
+                ctx.logger
+              );
+            } else {
+              // axios失败且非 mix.tokyo，使用 follow-redirects 兜底一次
+              ctx.logger.warn(`    ⚠️ axios 下载失败(${e.message})，尝试 follow-redirects 兜底`);
+              responseData = await new Promise((resolve, reject) => {
+                const lib = cleanUrl.startsWith('https') ? followHttps : followHttp;
+                const req = lib.get(cleanUrl, {
+                  headers: {
+                    ...COMMON_HEADERS,
+                    Referer: 'https://www.callawaygolf.jp/'
+                  },
+                  maxRedirects: 10
+                }, (res) => {
+                  const chunks = [];
+                  res.on('data', chunk => chunks.push(chunk));
+                  res.on('end', () => resolve(Buffer.concat(chunks)));
+                });
+                req.on('error', reject);
+              });
+            }
+          }
+
+          imageBuffer = Buffer.from(responseData);
+
+          // 检测并转换 webp 为 jpg（使用sharp的metadata检测）
+          try {
+            const metadata = await sharp(imageBuffer).metadata();
+            if (metadata.format === 'webp') {
+              ctx.logger.info(`    🔄 检测到 webp 格式，转换为 jpg...`);
+              imageBuffer = await sharp(imageBuffer).jpeg({ quality: 95 }).toBuffer();
+            }
+          } catch (metaError) {
+            // 如果metadata检测失败，忽略并继续
           }
         } else {
           // 正式下载（使用file_token）
@@ -265,6 +351,15 @@ const step1 = async (ctx) => {
     }
     ctx.logger.info(`耗时: ${duration.toFixed(2)} 秒`);
     ctx.logger.info(`保存路径: ${baseDir}`);
+
+    // 如果全部失败，标记步骤失败并中断流程，避免后续空跑
+    if (downloadResults.success.length === 0) {
+      ctx.logger.error('❌ 所有图片下载失败，终止后续步骤');
+      taskCache.stepStatus[1] = 'failed';
+      saveTaskCache(ctx.productId, taskCache);
+      updateStepStatus(ctx.productId, 1, 'failed');
+      throw new Error('所有图片下载失败');
+    }
 
     // 清理颜色子目录（只保留a1.jpg, a2.jpg等文件）
     ctx.logger.info('\n🧹 清理颜色子目录...');
