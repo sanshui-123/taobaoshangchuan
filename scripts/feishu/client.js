@@ -244,8 +244,15 @@ class FeishuClient {
       targetStatuses = rawStatuses.filter(s => s);
       console.log('[飞书-DEBUG] 非空状态列表:', targetStatuses);
 
+      const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
+      const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+
       if (includeEmpty) {
         console.log('[飞书] ✅ 配置包含空状态，将同时获取状态为空的记录');
+      }
+
+      if (targetStatuses.includes(doneValue) || targetStatuses.includes(errorValue) || includeEmpty) {
+        console.warn('[飞书] ⚠️ FEISHU_TARGET_STATUS 包含已完成/失败/空值，可能导致已处理记录被重新拉取。如非必要，请移除这些状态。');
       }
     } else {
       // 默认只获取"待检测"状态

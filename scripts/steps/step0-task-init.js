@@ -33,6 +33,9 @@ const step0 = async (ctx) => {
   ctx.logger.info('开始从飞书获取待发布商品数据');
 
   try {
+    const partialValue = process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新';
+    const skipPhaseARef = { value: false };
+
     // 批量预处理：将所有空状态记录更新为"待检测"
     await scanAndMarkPending(ctx);
     // 检查是否已从命令行参数指定了商品ID
@@ -58,7 +61,7 @@ const step0 = async (ctx) => {
         throw new Error(`未找到商品ID为 ${ctx.productId} 的记录`);
       }
 
-      await processRecord(record, ctx);
+      await processRecord(record, ctx, { partialValue, skipPhaseARef });
     } else {
       // 获取所有待发布记录
       let records = await feishuClient.getAllRecords();
@@ -144,7 +147,7 @@ const step0 = async (ctx) => {
       // 处理第一条记录（优先级最高的）
       const record = records[0];
       ctx.logger.info(`📊 当前记录状态: ${record.fields[statusField] || '(空)'}`);
-      await processRecord(record, ctx);
+      await processRecord(record, ctx, { partialValue, skipPhaseARef });
     }
 
     // 更新步骤状态为完成
@@ -174,7 +177,13 @@ const step0 = async (ctx) => {
 /**
  * 处理单条记录
  */
-async function processRecord(record, ctx) {
+async function processRecord(record, ctx, opts = {}) {
+  const {
+    partialValue = process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新',
+    skipPhaseARef
+  } = opts;
+  // 本地标记，允许通过引用回传
+  let skipPhaseA = skipPhaseARef ? skipPhaseARef.value : false;
   const { record_id, fields } = record;
   ctx.feishuRecordId = record_id;
 
@@ -246,8 +255,16 @@ async function processRecord(record, ctx) {
     return;
   }
 
-  // 根据当前状态决定是否执行查重
-  if (currentStatus === checkingValue) {
+  // 根据当前状态决定是否执行查重/跳过前置
+  if (currentStatus === partialValue) {
+    ctx.logger.info(`🔄 检测到状态为"${partialValue}"，跳过前置步骤（1-3），继续后续流程`);
+    skipPhaseA = true;
+    if (skipPhaseARef) skipPhaseARef.value = true;
+    // 标记步骤状态
+    updateStepStatus(productId, 1, 'skipped');
+    updateStepStatus(productId, 2, 'skipped');
+    updateStepStatus(productId, 3, 'skipped');
+  } else if (currentStatus === checkingValue) {
     // 状态为"待检测"时，执行查重
     ctx.logger.info(`🔍 当前状态为"${checkingValue}"，执行查重检查...`);
 
@@ -378,8 +395,8 @@ async function processRecord(record, ctx) {
   }
   */
 
-  // 状态不是"待上传"，则跳过处理
-  if (currentStatus !== pendingValue) {
+  // 状态不是"待上传"且不是部分完成，则跳过处理
+  if (currentStatus !== pendingValue && currentStatus !== partialValue) {
     ctx.logger.info(`当前状态为"${currentStatus}"，跳过处理`);
     return;
   }
@@ -428,6 +445,10 @@ async function processRecord(record, ctx) {
   const genderValue = getFieldValue(fields, process.env.FEISHU_GENDER_FIELD || '适用性别');
   const categoryValue = getFieldValue(fields, process.env.FEISHU_CATEGORY_FIELD || '品类');
 
+  const rawStock = getFieldValue(fields, process.env.FEISHU_STOCK_FIELD || '库存', '');
+  const parsedStock = Number.parseInt(rawStock, 10);
+  const baseStock = Number.isFinite(parsedStock) && parsedStock > 0 ? parsedStock : 3;
+
   const productData = {
     productId,
     feishuRecordId: record_id,
@@ -439,6 +460,8 @@ async function processRecord(record, ctx) {
     detailCN: getFieldValue(fields, process.env.FEISHU_DETAIL_CN_FIELD || '详情页文字'),
     detailJP: getFieldValue(fields, process.env.FEISHU_DETAIL_JP_FIELD || '详情页文字_日文'),
     price: getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格'),
+    basePrice: Number(getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格')) || getFieldValue(fields, process.env.FEISHU_PRICE_FIELD || '价格'),
+    baseStock,
     category: categoryValue,
     gender: genderValue,
     images: getImageUrls(fields, process.env.FEISHU_IMAGE_FIELD || '图片URL'),
@@ -465,7 +488,12 @@ async function processRecord(record, ctx) {
     productId,
     feishuRecordId: record_id,
     createdAt: new Date().toISOString(),
-    stepStatus: { 0: 'done' },
+    stepStatus: {
+      0: 'done',
+      1: skipPhaseA ? 'skipped' : 'pending',
+      2: skipPhaseA ? 'skipped' : 'pending',
+      3: skipPhaseA ? 'skipped' : 'pending'
+    },
     productData,
     images: productData.images,
     colors: productData.colors,
@@ -473,7 +501,12 @@ async function processRecord(record, ctx) {
     processedAt: new Date().toISOString()
   };
 
-  saveTaskCache(productId, cacheData);
+    // 如果通过引用传递，更新外部 skipPhaseA 标记，便于调用方知晓
+    if (skipPhaseARef) {
+      skipPhaseARef.value = skipPhaseA;
+    }
+
+    saveTaskCache(productId, cacheData);
 
   // 创建必要的目录
   const assetsDir = path.resolve(process.cwd(), 'assets', productId);

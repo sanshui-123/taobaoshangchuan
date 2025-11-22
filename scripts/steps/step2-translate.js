@@ -11,8 +11,14 @@ const fs = require('fs');
 const step2 = async (ctx) => {
   ctx.logger.info('步骤2已禁用翻译，跳过并标记完成');
 
-  // 保底更新步骤状态
+  // 如已标记为跳过，直接返回
   const taskCache = loadTaskCache(ctx.productId);
+  if (taskCache.stepStatus && taskCache.stepStatus[2] === 'skipped') {
+    updateStepStatus(ctx.productId, 2, 'skipped');
+    return;
+  }
+
+  // 保底更新步骤状态
   taskCache.stepStatus[2] = 'done';
   saveTaskCache(ctx.productId, taskCache);
   updateStepStatus(ctx.productId, 2, 'done');

@@ -110,6 +110,7 @@ const step14 = async (ctx) => {
 
     ctx.logger.info(`\n报告文件: ${reportFile}`);
     ctx.logger.info(`日志文件: ${logFile}`);
+    ctx.logger.info(`日志目录: logs/${productId}`);
     ctx.logger.success('='.repeat(50));
 
     // 更新缓存

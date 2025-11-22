@@ -11,6 +11,14 @@ const browserManager = require('../utils/browser-manager');
 const step3 = async (ctx) => {
   ctx.logger.info('检查登录状态');
 
+  // 如果标记为跳过，直接返回
+  const taskCachePre = loadTaskCache(ctx.productId);
+  if (taskCachePre.stepStatus && taskCachePre.stepStatus[3] === 'skipped') {
+    ctx.logger.info('⚠️ 步骤3已标记为跳过，直接结束');
+    updateStepStatus(ctx.productId, 3, 'skipped');
+    return;
+  }
+
   // 获取storage路径
   const storagePath = process.env.TAOBAO_STORAGE_STATE_PATH ||
     path.resolve(process.cwd(), 'storage', 'taobao-storage-state.json');

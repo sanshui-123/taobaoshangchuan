@@ -4,6 +4,7 @@ const { Command } = require('commander');
 const { steps } = require('./steps');
 const { createStepLogger } = require('./utils/logger');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('./utils/cache');
+const { feishuClient } = require('./feishu/client');
 const { uploadImages } = require('./tools/upload-material-folder');
 
 // 步骤名称映射
@@ -64,7 +65,8 @@ program
   .option('--screenshot', '每个步骤完成后自动截图')
   .option('--brand <name>', '只处理指定品牌')
   .option('--category <name>', '只处理指定品类')
-  .option('--gender <name>', '只处理指定性别');
+  .option('--gender <name>', '只处理指定性别')
+  .option('--no-material-upload', '跳过 Step3.5 素材库上传（用于复跑后续步骤）');
 
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
@@ -208,6 +210,10 @@ async function runSteps(options) {
 
       // Step3（登录验证）完成后，自动调用素材库上传（仅成功一次）
       if (stepId === 3) {
+        if (stepStatus[stepId] === 'skipped' || options.noMaterialUpload) {
+          console.log('🚫 已配置跳过素材库上传，忽略 Step3.5');
+          return;
+        }
         console.log('\n--- [Step 3.5 - 素材库上传] 开始 ---');
         const currentCache = loadTaskCache(currentProductId);
 
@@ -237,6 +243,29 @@ async function runSteps(options) {
           console.error(`❌ [Step 3.5 - 素材库上传] 异常: ${uploadError.message}`);
           console.log('   继续执行后续步骤...');
         }
+
+        // 三步完成后，回写飞书状态为“部分完成”（避免下次重复跑1-3步）
+        try {
+          const partialValue = process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新';
+          const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
+          if (sharedContext.feishuRecordId) {
+            await feishuClient.updateRecord(sharedContext.feishuRecordId, {
+              [statusField]: partialValue
+            });
+            console.log(`✅ 已回写飞书状态为"${partialValue}"，下次将从Step4开始`);
+          }
+        } catch (err) {
+          console.log(`⚠️ 回写飞书部分状态失败: ${err.message}`);
+        }
+      }
+
+      // Step0 完成后，刷新跳过状态到内存
+      if (stepId === 0) {
+        const refreshedCache = loadTaskCache(resolveProductId());
+        if (refreshedCache && refreshedCache.stepStatus) {
+          Object.assign(stepStatus, refreshedCache.stepStatus);
+          console.log('🔄 已同步 Step0 更新的步骤状态到内存，用于后续跳过判断');
+        }
       }
     } else {
       console.error(`❌ [Step ${stepId}] 失败: ${error?.message}`);
@@ -255,6 +284,13 @@ async function runSteps(options) {
 
   // 执行单个步骤的辅助函数
   const executeStep = async (stepId) => {
+    // 如果标记为跳过，直接返回且保持状态
+    if (stepStatus[stepId] === 'skipped') {
+      console.log(`⏭️  [Step ${stepId}] 已标记为跳过，直接进入下一步`);
+      updateStepStatus(resolveProductId(), stepId, 'skipped');
+      return;
+    }
+
     await beforeStep(stepId);
 
     const ctx = createStepContext(stepId);
@@ -268,6 +304,7 @@ async function runSteps(options) {
     if (stepId === 0 && ctx.productId && ctx.productId !== tempProductId) {
       sharedContext.productId = ctx.productId;
       console.log(`\n✅ 自动取单成功 - ProductID: ${ctx.productId}`);
+      console.log(`🗂️  日志目录: logs/${ctx.productId}`);
     }
 
     await afterStep(stepId, 'done');
