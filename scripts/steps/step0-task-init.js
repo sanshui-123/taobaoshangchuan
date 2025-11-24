@@ -275,6 +275,7 @@ async function processRecord(record, ctx, opts = {}) {
   if (currentStatus === partialValue) {
     ctx.logger.info(`🔄 检测到状态为"${partialValue}"，跳过前置步骤（1-3），继续后续流程`);
     skipPhaseA = true;
+    cacheData.skipPhaseA = true;
     if (skipPhaseARef) skipPhaseARef.value = true;
     // 标记步骤状态
     updateStepStatus(productId, 1, 'skipped');
@@ -507,6 +508,7 @@ async function processRecord(record, ctx, opts = {}) {
     productId,
     feishuRecordId: record_id,
     createdAt: new Date().toISOString(),
+    skipPhaseA,
     stepStatus: {
       0: 'done',
       1: skipPhaseA ? 'skipped' : 'pending',

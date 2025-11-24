@@ -283,6 +283,16 @@ async function runSteps(options) {
           Object.assign(stepStatus, refreshedCache.stepStatus);
           console.log('🔄 已同步 Step0 更新的步骤状态到内存，用于后续跳过判断');
 
+          // 如果标记了 skipPhaseA，确保 1/2/3 为 skipped 并保存
+          if (refreshedCache.skipPhaseA) {
+            [1, 2, 3].forEach(s => stepStatus[s] = 'skipped');
+            const currentProductId = resolveProductId();
+            const cacheToSave = loadTaskCache(currentProductId) || {};
+            cacheToSave.stepStatus = { ...cacheToSave.stepStatus, ...stepStatus };
+            saveTaskCache(currentProductId, cacheToSave);
+            console.log('⏭️  检测到前三步已更新，自动跳过步骤1-3');
+          }
+
           // 如果后续步骤全部为 skipped，则直接终止流程
           const allSkipped = stepsToRun
             .filter(s => s !== 0)
