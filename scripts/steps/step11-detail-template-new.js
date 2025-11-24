@@ -105,7 +105,7 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info('  ✅ 已打开模板编辑弹窗');
 
-    // ==================== 步骤3.5：定位到第一张图片左侧 ====================
+    // ==================== 步骤3.5：定位到第一张图片左侧（确保新内容插在最前） ====================
     ctx.logger.info('\n[步骤3.5] 定位光标到第一张图片左侧');
 
     // 在编辑弹窗中找到可编辑区域
@@ -115,46 +115,37 @@ const step11Detail = async (ctx) => {
     await editableArea.click();
     await page.waitForTimeout(300);
 
-    // 查找编辑器中的第一张图片（衣服图）
+    let positioned = false;
     try {
-      // 定位到编辑模块中的第一张图片
       const firstImage = page.getByLabel('编辑模块').locator('img').first();
-
       if (await firstImage.isVisible({ timeout: 2000 })) {
         ctx.logger.info('  ✅ 找到第一张图片');
-
-        // 先悬停在图片上
-        await firstImage.hover();
-
-        // 获取图片坐标
         const box = await firstImage.boundingBox();
         if (box) {
-          // 在图片左侧点击（左边5px，下边5px的位置）
+          // 在图片左上方偏左点击，确保光标落在图片前
           await page.mouse.click(box.x - 5, box.y + 5);
-          ctx.logger.info('  ✅ 点击了图片左侧位置');
+          await page.waitForTimeout(200);
+          // 预留空行，确保后续插入在图片之前
+          await page.keyboard.press('Enter');
+          await page.keyboard.press('ArrowUp');
+          positioned = true;
+          ctx.logger.info('  ✅ 光标已定位到模板图片前，预留空行');
         } else {
-          // 备用方案：直接点击图片然后按左箭头
-          await firstImage.click();
-          await page.keyboard.press('ArrowLeft');
-          ctx.logger.info('  ℹ️ 使用备用方案：点击图片后按左箭头');
+          ctx.logger.warn('  ⚠️ 无法获取图片坐标，使用备用方案');
         }
-
-        // 按回车创建新行，在图片上方插入内容
-        await page.keyboard.press('Enter');
-        // 按上箭头回到新创建的空行
-        await page.keyboard.press('ArrowUp');
-
-        ctx.logger.info('  ✅ 已在图片上方预留空行，光标就绪');
       } else {
-        // 如果没找到图片，使用Ctrl+Home定位到文档开头
-        ctx.logger.info('  ℹ️ 未找到图片，使用文档开头位置');
-        await page.keyboard.press('Control+Home');
+        ctx.logger.warn('  ⚠️ 未找到模板图片');
       }
     } catch (e) {
-      ctx.logger.error(`  ⚠️ 定位图片失败: ${e.message}`);
-      // 备用方案：定位到文档开头
-      await page.keyboard.press('Control+Home');
-      ctx.logger.info('  ℹ️ 使用文档开头位置作为备选');
+      ctx.logger.warn(`  ⚠️ 定位图片失败: ${e.message}`);
+    }
+
+    if (!positioned) {
+      // 备用：移动到文档开头插入空行
+      ctx.logger.info('  ℹ️ 使用文档开头作为插入位置');
+      await page.keyboard.press('Control+Home').catch(() => {});
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('ArrowUp');
     }
 
     // ==================== 步骤4：插入详情页文字 ====================
