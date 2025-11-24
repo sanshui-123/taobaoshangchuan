@@ -117,27 +117,33 @@ const step11Detail = async (ctx) => {
 
     let positioned = false;
     try {
-      const firstImage = page.getByLabel('编辑模块').locator('img').first();
-      if (await firstImage.isVisible({ timeout: 2000 })) {
-        ctx.logger.info('  ✅ 找到第一张图片');
-        const box = await firstImage.boundingBox();
-        if (box) {
-          // 在图片左上方偏左点击，确保光标落在图片前
-          await page.mouse.click(box.x - 5, box.y + 5);
-          await page.waitForTimeout(200);
-          // 预留空行，确保后续插入在图片之前
-          await page.keyboard.press('Enter');
-          await page.keyboard.press('ArrowUp');
-          positioned = true;
-          ctx.logger.info('  ✅ 光标已定位到模板图片前，预留空行');
+      const success = await page.evaluate(() => {
+        const editable = document.querySelector('.next-dialog-body [contenteditable="true"]');
+        if (!editable) return false;
+        const firstImg = editable.querySelector('img');
+        const range = document.createRange();
+        const sel = window.getSelection();
+        if (firstImg && firstImg.parentNode) {
+          range.setStartBefore(firstImg);
+          range.setEndBefore(firstImg);
         } else {
-          ctx.logger.warn('  ⚠️ 无法获取图片坐标，使用备用方案');
+          // 若无图片，定位到编辑区域开头
+          range.setStart(editable, 0);
+          range.setEnd(editable, 0);
         }
-      } else {
-        ctx.logger.warn('  ⚠️ 未找到模板图片');
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      });
+      if (success) {
+        positioned = true;
+        // 预留空行，确保后续插入在图片之前
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('ArrowUp');
+        ctx.logger.info('  ✅ 已将光标定位到模板首图之前（或文首），并预留空行');
       }
     } catch (e) {
-      ctx.logger.warn(`  ⚠️ 定位图片失败: ${e.message}`);
+      ctx.logger.warn(`  ⚠️ 定位图片前插入位置失败: ${e.message}`);
     }
 
     if (!positioned) {
