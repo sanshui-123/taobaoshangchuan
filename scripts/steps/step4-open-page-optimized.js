@@ -548,13 +548,18 @@ async function step4(ctx) {
 
     // 使用直达链接打开发布页面（优化版）
     ctx.logger.info('🚀 使用模板商品直达发布页面...');
-    // 按品牌选择模板ID（PEARLY GATES 使用专属模板，否则用默认）
+    // 按品牌选择模板ID（品牌专属优先）
     const brand = cache?.productData?.brand || '';
     const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
+    const munsingTemplateId = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
     const defaultTemplateId = process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
-    const templateItemId = brand === 'PEARLY GATES' ? pearlyTemplateId : defaultTemplateId;
+    let templateItemId = defaultTemplateId;
     if (brand === 'PEARLY GATES') {
+      templateItemId = pearlyTemplateId;
       ctx.logger.info(`品牌为 PEARLY GATES，使用专属模板ID: ${templateItemId}`);
+    } else if (brand === '万星威Munsingwear' || brand === 'Munsingwear') {
+      templateItemId = munsingTemplateId;
+      ctx.logger.info(`品牌为 万星威Munsingwear，使用专属模板ID: ${templateItemId}`);
     } else {
       ctx.logger.info(`模板商品ID: ${templateItemId}`);
     }

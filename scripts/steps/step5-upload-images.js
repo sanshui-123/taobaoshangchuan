@@ -827,8 +827,8 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   ctx.logger.info(`  颜色数: ${colorCount}`);
   ctx.logger.info(`  总图片数: ${imageCount}`);
 
-  // ========== Le Coq / PEARLY GATES 品牌特例 ==========
-  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES'];
+  // ========== 品牌特例：倒序取5张 ==========
+  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES', '万星威Munsingwear', 'Munsingwear'];
   if (specialBrands.includes(brand)) {
     ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 

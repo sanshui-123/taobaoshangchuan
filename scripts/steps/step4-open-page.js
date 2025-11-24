@@ -636,12 +636,16 @@ const step4 = async (ctx) => {
     // 只使用模板商品ID，直达发布页（PEARLY GATES 使用专属模板）
     const brand = cache?.productData?.brand || '';
     const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
+    const munsingTemplateId = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
     const defaultTemplateId = process.env.TEMPLATE_ITEM_ID ||
       (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
 
-    const templateItemId = brand === 'PEARLY GATES'
-      ? pearlyTemplateId
-      : (ctx.templateItemId || defaultTemplateId);
+    let templateItemId = ctx.templateItemId || defaultTemplateId;
+    if (brand === 'PEARLY GATES') {
+      templateItemId = pearlyTemplateId;
+    } else if (brand === '万星威Munsingwear' || brand === 'Munsingwear') {
+      templateItemId = munsingTemplateId;
+    }
 
     if (!templateItemId) {
       throw new Error('未配置 TEMPLATE_ITEM_ID（或 ctx.templateItemId），无法直达发布页面');
@@ -650,6 +654,8 @@ const step4 = async (ctx) => {
     ctx.logger.info('🚀 使用模板商品直达发布页面...');
     if (brand === 'PEARLY GATES') {
       ctx.logger.info(`品牌为 PEARLY GATES，使用专属模板ID: ${templateItemId}`);
+    } else if (brand === '万星威Munsingwear' || brand === 'Munsingwear') {
+      ctx.logger.info(`品牌为 万星威Munsingwear，使用专属模板ID: ${templateItemId}`);
     } else {
       ctx.logger.info(`模板商品ID: ${templateItemId}`);
     }
