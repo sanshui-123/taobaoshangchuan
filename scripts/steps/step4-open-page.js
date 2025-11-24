@@ -743,6 +743,14 @@ const step4 = async (ctx) => {
       }
     }
 
+    // 颜色去重（保留顺序）
+    const rawColorCount = colors.length;
+    const seen = new Set();
+    colors = colors
+      .map(c => (typeof c === 'string' ? c.trim() : (c?.colorName || c?.name || '').trim()))
+      .filter(c => c && !seen.has(c) && seen.add(c));
+    ctx.logger.info(`  颜色去重: ${rawColorCount} -> ${colors.length}`);
+
     // 品牌特殊处理：PEARLY GATES 颜色第一项插入固定提示
     const specialColorNote = '3=S，4=M，5=L，6=XL，7=XXL';
     const brandName = taskCacheData?.productData?.brand || '';
@@ -751,6 +759,14 @@ const step4 = async (ctx) => {
       colors = [specialColorNote, ...colors];
       ctx.logger.info(`  品牌为 PEARLY GATES，颜色首项插入提示: ${specialColorNote}`);
     }
+
+    if (colors.length === 0) {
+      throw new Error('颜色为空（去重后无有效颜色），请检查飞书数据');
+    }
+
+    // 回写去重后的颜色到缓存
+    taskCacheData.productData.colors = colors;
+    saveTaskCache(ctx.productId, taskCacheData);
 
     ctx.logger.info(`\n从缓存获取数据:`);
     ctx.logger.info(`  颜色: ${colors.length > 0 ? colors.join(', ') : '无'}`);

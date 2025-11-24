@@ -291,6 +291,10 @@ async function runSteps(options) {
             cacheToSave.stepStatus = { ...cacheToSave.stepStatus, ...stepStatus };
             saveTaskCache(currentProductId, cacheToSave);
             console.log('⏭️  检测到前三步已更新，自动跳过步骤1-3');
+
+            // 从计划中剔除 1/2/3，直接从后续步骤开始
+            stepsToRun = stepsToRun.filter(s => stepStatus[s] !== 'skipped');
+            console.log(`⏭️  调整执行计划，剩余步骤: ${stepsToRun.join(', ')}`);
           }
 
           // 如果后续步骤全部为 skipped，则直接终止流程

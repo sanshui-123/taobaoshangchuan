@@ -420,34 +420,29 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤9：点击素材库弹窗的"确定（N）"按钮 ====================
     ctx.logger.info('\n[步骤9] 点击素材库弹窗确定按钮');
 
-    // 素材库弹窗的确定按钮：button.next-btn.next-medium.next-btn-primary.Footer_selectOk__...
-    // 文字会显示"确定（22）"等
-    const imageLibraryConfirmSelectors = [
-      () => imageFrame.locator('button.Footer_selectOk__nEl3N'),  // 精确类名
-      () => imageFrame.locator('button[class*="Footer_selectOk"]'),  // 模糊匹配类名
-      () => imageFrame.getByRole('button', { name: /确定\s*\(\d+\)/ }),  // 匹配"确定（N）"
-      () => imageFrame.getByRole('button', { name: /确定/ }).first()  // 通用备选
-    ];
+    // 素材库弹窗的确定按钮：文字会显示"确定（N）"，优先匹配带计数节点
+    const confirmBtnWithCount = imageFrame.locator('button.next-btn-primary:has(.next-btn-count)');
+    const fallbackConfirm = imageFrame.locator('button:has-text("确定")').filter({
+      hasText: /\(\s*\d+\s*\)/
+    });
 
-    let imageLibraryConfirmBtn = null;
-    for (let i = 0; i < imageLibraryConfirmSelectors.length; i++) {
-      try {
-        const btn = imageLibraryConfirmSelectors[i]();
-        if (await btn.isVisible({ timeout: 1000 })) {
-          imageLibraryConfirmBtn = btn;
-          ctx.logger.info(`  ✅ 找到素材库确定按钮 (方式${i + 1})`);
-          break;
-        }
-      } catch (e) {
-        // 继续尝试
-      }
+    let imageLibraryConfirmBtn = confirmBtnWithCount;
+    if (await confirmBtnWithCount.count() === 0) {
+      imageLibraryConfirmBtn = fallbackConfirm;
     }
 
-    if (!imageLibraryConfirmBtn) {
-      throw new Error('未找到素材库弹窗的确定按钮');
+    await imageLibraryConfirmBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await imageLibraryConfirmBtn.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+
+    const enabled = await imageLibraryConfirmBtn.isEnabled();
+    if (!enabled) {
+      throw new Error('素材库确定按钮不可用');
     }
 
     await imageLibraryConfirmBtn.click({ force: true });
+    // 等待弹窗关闭或按钮消失，最多5秒
+    await imageFrame.locator('button:has-text("确定")').last().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已点击素材库确定按钮');

@@ -623,15 +623,29 @@ async function step4(ctx) {
 
     let { colors = [], sizes = [] } = cache.productData;
 
+    // 简单去重颜色（保留顺序）
+    const rawColorCount = colors.length;
+    const seen = new Set();
+    colors = colors
+      .map(c => (typeof c === 'string' ? c.trim() : (c?.colorName || c?.name || '').trim()))
+      .filter(c => c && !seen.has(c) && seen.add(c));
+    ctx.logger.info(`  颜色去重: ${rawColorCount} -> ${colors.length}`);
+
     // 品牌特殊处理：PEARLY GATES 在颜色第一项插入固定提示
     const specialColorNote = '3=S，4=M，5=L，6=XL，7=XXL';
     if (brand === 'PEARLY GATES') {
-      colors = colors.map(c => (typeof c === 'string' ? c : (c?.colorName || c?.name || c)));
-      // 去重避免重复插入
       colors = colors.filter(c => c && c !== specialColorNote);
       colors = [specialColorNote, ...colors];
       ctx.logger.info(`  品牌为 PEARLY GATES，颜色首项插入提示: ${specialColorNote}`);
     }
+
+    if (colors.length === 0) {
+      throw new Error('颜色为空（去重后无有效颜色），请检查飞书数据');
+    }
+
+    // 回写去重后的颜色到缓存
+    cache.productData.colors = colors;
+    saveTaskCache(productId, cache);
 
     ctx.logger.info('\n从缓存获取数据:');
     ctx.logger.info(`  颜色: ${colors.join(', ')}`);

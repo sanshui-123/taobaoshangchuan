@@ -1,5 +1,5 @@
 const { feishuClient } = require('../feishu/client');
-const { saveTaskCache, updateStepStatus } = require('../utils/cache');
+const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const { checkProductExists } = require('../utils/taobao-check');
 const fs = require('fs');
 const path = require('path');
@@ -412,8 +412,9 @@ async function processRecord(record, ctx, opts = {}) {
   }
   */
 
-  // 状态不是"待上传"且不是部分完成，则跳过处理
-  if (currentStatus !== pendingValue && currentStatus !== partialValue) {
+  // 状态不是"待上传"、"前三步已更新"、"上传失败"，则跳过处理
+  // 允许重试失败的商品
+  if (currentStatus !== pendingValue && currentStatus !== partialValue && currentStatus !== errorValue) {
     ctx.logger.info(`当前状态为"${currentStatus}"，跳过处理`);
     // 将后续步骤全部标记为 skipped，避免后续误执行
     markAllSkipped(productId);
