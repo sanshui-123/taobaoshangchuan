@@ -420,29 +420,44 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤9：点击素材库弹窗的"确定（N）"按钮 ====================
     ctx.logger.info('\n[步骤9] 点击素材库弹窗确定按钮');
 
-    // 素材库弹窗的确定按钮：文字会显示"确定（N）"，优先匹配带计数节点
-    const confirmBtnWithCount = imageFrame.locator('button.next-btn-primary:has(.next-btn-count)');
-    const fallbackConfirm = imageFrame.locator('button:has-text("确定")').filter({
-      hasText: /\(\s*\d+\s*\)/
+    // 素材库弹窗的确定按钮：必须带计数
+    const confirmWithCount = imageFrame.locator('button:has(.next-btn-count):has-text("确定")');
+    const fallbackWithBracket = imageFrame.locator('button').filter({
+      hasText: /\(\s*\d+\s*\)/,
+      hasText: /确定|確定/
     });
 
-    let imageLibraryConfirmBtn = confirmBtnWithCount;
-    if (await confirmBtnWithCount.count() === 0) {
-      imageLibraryConfirmBtn = fallbackConfirm;
+    let imageLibraryConfirmBtn = confirmWithCount;
+    const primaryCount = await confirmWithCount.count();
+    const fallbackCount = await fallbackWithBracket.count();
+    ctx.logger.info(`  🔍 确定按钮匹配: primary=${primaryCount}, fallback=${fallbackCount}`);
+
+    if (primaryCount === 0 && fallbackCount > 0) {
+      imageLibraryConfirmBtn = fallbackWithBracket;
+      ctx.logger.info('  ℹ️ 使用括号数字匹配的兜底选择器');
     }
 
-    await imageLibraryConfirmBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await imageLibraryConfirmBtn.scrollIntoViewIfNeeded();
+    await imageLibraryConfirmBtn.first().waitFor({ state: 'visible', timeout: 8000 });
+    await imageLibraryConfirmBtn.first().scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
 
-    const enabled = await imageLibraryConfirmBtn.isEnabled();
+    const enabled = await imageLibraryConfirmBtn.first().isEnabled();
     if (!enabled) {
       throw new Error('素材库确定按钮不可用');
     }
 
-    await imageLibraryConfirmBtn.click({ force: true });
-    // 等待弹窗关闭或按钮消失，最多5秒
-    await imageFrame.locator('button:has-text("确定")').last().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+    await imageLibraryConfirmBtn.first().click({ force: true });
+
+    // 若首次点击后按钮仍存在，再尝试一次点击（防止首次未生效）
+    try {
+      await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 3000 });
+    } catch (e) {
+      ctx.logger.warn('  ⚠️ 首次点击后按钮仍在，重试一次');
+      await imageLibraryConfirmBtn.first().click({ force: true });
+    }
+
+    // 再等弹窗关闭或按钮消失，最多5秒
+    await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已点击素材库确定按钮');
