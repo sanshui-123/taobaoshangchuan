@@ -42,3 +42,11 @@ Thumbs.db
 cache/
 publish_log*.txt
 *.txt
+
+# 临时文件和错误截图
+*.bak
+step5-upload-error-*.png
+loop_*.sh
+
+# Excel文件（根目录）
+/*.xlsx
