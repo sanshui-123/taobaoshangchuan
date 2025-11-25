@@ -25,3 +25,24 @@
 - 遵循 Conventional Commits，如 `feat(step5): 提升主图选择稳健性`、`fix(feishu): 处理空表格分页`；保持英文类型 + 可选作用域 + 简洁描述。
 - PR 需包含：变更概述、影响范围（步骤/站点/环境）、已执行命令与结果、必要的截图或日志引用；关联对应任务/问题。
 - 严禁提交敏感文件（`tb.env*`、`storage/`、浏览器缓存）；若新增配置项，请同步更新 `tb.env.example` 并在描述中说明。
+
+## 浏览器实例约定（重启后如何开启、如何区分）
+- 男店（端口 9222，缓存目录 profile-storeA）  
+  启动：
+  ```bash
+  open -a "Google Chrome" --args \
+    --remote-debugging-port=9222 \
+    --user-data-dir="/Users/sanshui/Desktop/tbzhuaqu/storage/profile-storeA"
+  ```
+  连接（browser-manager）：`chromium.connectOverCDP('http://127.0.0.1:9222')`
+
+- 女店（端口 9223，缓存目录 profile-storeB）  
+  启动：
+  ```bash
+  open -a "Google Chrome" --args \
+    --remote-debugging-port=9223 \
+    --user-data-dir="/Users/sanshui/Desktop/tbzhuaqu/storage/profile-storeB"
+  ```
+  连接（browser-manager）：`chromium.connectOverCDP('http://127.0.0.1:9223')`
+
+提示：两实例端口和用户数据目录必须独立，重启后先各自运行上述启动命令，再按店铺指定端口连接，缓存/登录互不影响。

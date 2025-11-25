@@ -633,32 +633,43 @@ const step4 = async (ctx) => {
     page.setDefaultTimeout(timeout);
     page.setDefaultNavigationTimeout(timeout);
 
-    // 只使用模板商品ID，直达发布页（PEARLY GATES 使用专属模板）
-    const brand = cache?.productData?.brand || '';
-    const pearlyTemplateId = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
-    const munsingTemplateId = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
-    const defaultTemplateId = process.env.TEMPLATE_ITEM_ID ||
-      (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
+    // 只使用模板商品ID，直达发布页（按店铺/品牌分配模板）
+    const brand = (cache?.productData?.brand || '').trim();
+    const store = (process.env.TAOBAO_STORE || 'male').trim().toLowerCase(); // male / female
 
-    let templateItemId = ctx.templateItemId || defaultTemplateId;
-    if (brand === 'PEARLY GATES') {
-      templateItemId = pearlyTemplateId;
-    } else if (brand === '万星威Munsingwear' || brand === 'Munsingwear') {
-      templateItemId = munsingTemplateId;
-    }
+    const resolveTemplateId = (store, brand) => {
+      const brandKey = brand.toLowerCase();
+      // 男店配置
+      const maleDefault = process.env.TEMPLATE_ITEM_ID_MALE || process.env.TEMPLATE_ITEM_ID ||
+        (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
+      const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
+      const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
+      // 女店配置
+      const femaleDefault = process.env.TEMPLATE_ITEM_ID_FEMALE || '963409414097';
+      const femalePearly = process.env.TEMPLATE_ITEM_ID_FEMALE_PEARLY_GATES || '962546682844';
+      const femaleMunsing = process.env.TEMPLATE_ITEM_ID_FEMALE_MUNSINGWEAR || '895577432419';
+
+      if (store === 'female') {
+        if (brandKey === 'pearly gates') return femalePearly;
+        if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
+        return femaleDefault;
+      }
+
+      // 默认男店
+      if (brandKey === 'pearly gates') return malePearly;
+      if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
+      return maleDefault;
+    };
+
+    const templateItemId = ctx.templateItemId || resolveTemplateId(store, brand);
 
     if (!templateItemId) {
-      throw new Error('未配置 TEMPLATE_ITEM_ID（或 ctx.templateItemId），无法直达发布页面');
+      throw new Error('未配置模板ID，无法直达发布页面');
     }
 
     ctx.logger.info('🚀 使用模板商品直达发布页面...');
-    if (brand === 'PEARLY GATES') {
-      ctx.logger.info(`品牌为 PEARLY GATES，使用专属模板ID: ${templateItemId}`);
-    } else if (brand === '万星威Munsingwear' || brand === 'Munsingwear') {
-      ctx.logger.info(`品牌为 万星威Munsingwear，使用专属模板ID: ${templateItemId}`);
-    } else {
-      ctx.logger.info(`模板商品ID: ${templateItemId}`);
-    }
+    ctx.logger.info(`店铺: ${store === 'female' ? '女店' : '男店'} | 品牌: ${brand || '(空)'}`);
+    ctx.logger.info(`模板商品ID: ${templateItemId}`);
 
     const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);

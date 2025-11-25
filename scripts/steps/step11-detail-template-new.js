@@ -120,17 +120,25 @@ const step11Detail = async (ctx) => {
       const success = await page.evaluate(() => {
         const editable = document.querySelector('.next-dialog-body [contenteditable="true"]');
         if (!editable) return false;
+        // 移除旧锚点
+        const old = editable.querySelector('#__cursor_anchor__');
+        if (old) old.remove();
+        const anchor = document.createElement('span');
+        anchor.id = '__cursor_anchor__';
+        anchor.style.display = 'inline-block';
+        anchor.style.width = '0';
+
         const firstImg = editable.querySelector('img');
+        if (firstImg && firstImg.parentNode) {
+          firstImg.parentNode.insertBefore(anchor, firstImg);
+        } else {
+          editable.insertBefore(anchor, editable.firstChild);
+        }
+
         const range = document.createRange();
         const sel = window.getSelection();
-        if (firstImg && firstImg.parentNode) {
-          range.setStartBefore(firstImg);
-          range.setEndBefore(firstImg);
-        } else {
-          // 若无图片，定位到编辑区域开头
-          range.setStart(editable, 0);
-          range.setEnd(editable, 0);
-        }
+        range.setStart(anchor, 0);
+        range.setEnd(anchor, 0);
         sel.removeAllRanges();
         sel.addRange(range);
         return true;
