@@ -20,9 +20,9 @@ class BrowserManager {
     this.initPromise = null;
 
     this.profileDir = path.resolve(process.cwd(), 'storage', 'browser-profile');
-    this.remotePort = parseInt(process.env.CHROME_REMOTE_PORT || '9222', 10);
     this.chromeAppName = process.env.CHROME_APP_NAME || 'Google Chrome';
     this.chromeHost = process.env.CHROME_REMOTE_HOST || '127.0.0.1';
+    this.remoteEndpoint = this._resolveEndpoint();
 
     BrowserManager.instance = this;
   }
@@ -98,9 +98,56 @@ class BrowserManager {
    */
   async _connectToChrome() {
     await this._ensureChromeLaunched();
-    const endpoint = `http://${this.chromeHost}:${this.remotePort}`;
-    console.log(`🔗 连接 Chrome 调试端口: ${endpoint}`);
-    return await chromium.connectOverCDP(endpoint);
+    console.log(`🔗 连接 Chrome 调试端口: ${this.remoteEndpoint}`);
+    return await chromium.connectOverCDP(this.remoteEndpoint);
+  }
+
+  /**
+   * 根据环境变量解析 CDP 端点
+   * 优先级：BROWSER_CDP_ENDPOINT > BROWSER_CDP_PORT > TAOBAO_STORE 映射 > CHROME_REMOTE_PORT 默认
+   */
+  _resolveEndpoint() {
+    const defaultHost = process.env.CHROME_REMOTE_HOST || '127.0.0.1';
+    const defaultPort = parseInt(process.env.CHROME_REMOTE_PORT || '9222', 10);
+    const store = (process.env.TAOBAO_STORE || '').toLowerCase();
+    const storePort = store === 'female' ? 9223 : store === 'male' ? 9222 : null;
+
+    // 1) 完整端点
+    const endpointEnv = process.env.BROWSER_CDP_ENDPOINT;
+    if (endpointEnv) {
+      try {
+        const url = new URL(endpointEnv);
+        this.remoteHost = url.hostname || defaultHost;
+        this.remotePort = parseInt(url.port || defaultPort, 10);
+        this.chromeHost = this.remoteHost;
+        return endpointEnv;
+      } catch (e) {
+        console.warn(`⚠️ BROWSER_CDP_ENDPOINT 无效，回退使用端口: ${e.message}`);
+      }
+    }
+
+    // 2) 指定端口
+    const portEnv = process.env.BROWSER_CDP_PORT;
+    if (portEnv) {
+      this.remotePort = parseInt(portEnv, 10) || defaultPort;
+      this.remoteHost = defaultHost;
+      this.chromeHost = this.remoteHost;
+      return `http://${this.remoteHost}:${this.remotePort}`;
+    }
+
+    // 3) 店铺映射
+    if (storePort) {
+      this.remotePort = storePort;
+      this.remoteHost = defaultHost;
+      this.chromeHost = this.remoteHost;
+      return `http://${this.remoteHost}:${this.remotePort}`;
+    }
+
+    // 4) 默认
+    this.remotePort = defaultPort;
+    this.remoteHost = defaultHost;
+    this.chromeHost = this.remoteHost;
+    return `http://${this.remoteHost}:${this.remotePort}`;
   }
 
   /**

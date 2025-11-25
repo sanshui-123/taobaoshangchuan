@@ -510,9 +510,13 @@ async function uploadImages(productId) {
     log(`广告处理完成: 关闭了 ${adResult.totalClosed} 个弹窗`, 'success');
     logVerbose('广告处理详情', adResult);
 
-    // 步骤2: 导航到素材库页面
-    log('步骤2: 导航到素材库页面...');
-    await page.goto('https://myseller.taobao.com/home.htm/material-center/mine-material/sucai-tu');
+    // 步骤2: 导航到素材库页面（按店铺选择 URL）
+    const store = (process.env.TAOBAO_STORE || 'male').trim().toLowerCase(); // male / female
+    const materialUrl = store === 'female'
+      ? 'https://myseller.taobao.com/home.htm/material-center/mine-material/sucai-tu'
+      : 'https://myseller.taobao.com/home.htm/material-center/mine-material/sucai-tu';
+    log(`步骤2: 导航到素材库页面... (店铺: ${store})`);
+    await page.goto(materialUrl);
     await page.waitForTimeout(3000); // 等待页面加载
 
     // 步骤3: 验证本地文件夹
@@ -526,7 +530,7 @@ async function uploadImages(productId) {
     // 步骤3.5: 确保从素材库根目录开始（避免停留在上一个商品的文件夹）
     log('📂 正在进入素材库根目录...', 'info');
     try {
-      await page.goto('https://myseller.taobao.com/home.htm/material-center/mine-material/sucai-tu', {
+      await page.goto(materialUrl, {
         waitUntil: 'domcontentloaded',
         timeout: 30000
       });
