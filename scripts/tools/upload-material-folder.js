@@ -6,10 +6,10 @@
  * node scripts/tools/upload-material-folder.js --product=12345 --verbose
  */
 
-const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 const { closeMaterialCenterPopups } = require('../utils/advert-handler');
+const browserManager = require('../utils/browser-manager');
 
 // 解析命令行参数
 const args = process.argv.slice(2);
@@ -473,32 +473,20 @@ async function uploadImages(productId) {
   let page;
 
   try {
-    // 连接到现有Chrome实例
-    log('连接到Chrome (CDP 9222)...');
-    browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-    const contexts = browser.contexts();
-
-    if (contexts.length === 0) {
-      throw new Error('未找到可用的浏览器上下文');
-    }
-
-    const context = contexts[0];
-    const pages = context.pages();
+    // 连接到现有Chrome实例（复用端点：BROWSER_CDP_ENDPOINT > BROWSER_CDP_PORT > TAOBAO_STORE）
+    log('连接到现有 Chrome（复用端点，不新开实例）...');
+    const context = await browserManager.getContext();
+    const pages = context.pages().filter(p => !p.isClosed());
 
     if (pages.length === 0) {
-      throw new Error('未找到可用的页面');
-    }
-
-    // 查找正确的淘宝页面，避免连接到DevTools页面
-    page = pages.find(p => {
-      const url = p.url();
-      return url.includes('taobao.com') || url.includes('myseller.taobao.com');
-    });
-
-    if (!page) {
-      // 如果没有找到淘宝页面，使用第一个页面并导航到素材库
-      page = pages[0];
-      logVerbose('未找到淘宝页面，将使用当前页面并导航到素材库');
+      page = await context.newPage();
+      logVerbose('未找到现有页面，新建一个空白页');
+    } else {
+      // 查找淘宝相关页面，避免 devtools
+      page = pages.find(p => {
+        const url = p.url();
+        return url.includes('taobao.com') || url.includes('myseller.taobao.com');
+      }) || pages[0];
     }
 
     log('Chrome连接成功');
