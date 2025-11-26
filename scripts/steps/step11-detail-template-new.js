@@ -35,8 +35,9 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤1：点击清空按钮清除旧内容 ====================
     ctx.logger.info('\n[步骤1] 点击清空按钮清除旧内容');
 
-    // 点击清空按钮
-    await page.getByRole('button', { name: '清空' }).click();
+    // 点击清空按钮（限定在编辑区域，避免多匹配）
+    const clearBtn = page.locator('#panel_edit').getByRole('button', { name: '清空' }).first();
+    await clearBtn.click();
     await page.waitForTimeout(500);
 
     // 点击确认对话框的确定按钮
