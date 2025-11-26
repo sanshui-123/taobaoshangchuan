@@ -142,6 +142,44 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info('  ✅ 已打开模板编辑弹窗');
 
+    // ==================== 步骤3.2：清理所有残留锚点（批量模式兜底） ====================
+    ctx.logger.info('\n[步骤3.2] 清理所有残留锚点（批量模式必须）');
+
+    try {
+      const cleaned = await page.evaluate(() => {
+        let count = 0;
+        // 清理所有可能的锚点ID
+        const anchorIds = ['__cursor_anchor__', '__cursor_anchor_img__'];
+        anchorIds.forEach(id => {
+          const elements = document.querySelectorAll(`#${id}`);
+          elements.forEach(el => {
+            el.remove();
+            count++;
+          });
+        });
+        // 额外清理：移除所有宽度为0的span（可能是遗留锚点）
+        const allSpans = document.querySelectorAll('span[style*="width: 0"], span[style*="width:0"]');
+        allSpans.forEach(span => {
+          if (span.id.includes('cursor') || span.id.includes('anchor')) {
+            span.remove();
+            count++;
+          }
+        });
+        return count;
+      });
+
+      if (cleaned > 0) {
+        ctx.logger.info(`  ✅ 已清理 ${cleaned} 个残留锚点元素`);
+      } else {
+        ctx.logger.info('  ✅ 无残留锚点，DOM状态干净');
+      }
+
+      // 等待DOM稳定
+      await page.waitForTimeout(300);
+    } catch (e) {
+      ctx.logger.warn(`  ⚠️ 清理锚点时出错（继续执行）: ${e.message}`);
+    }
+
     // ==================== 步骤3.5：定位到第一张图片左侧（确保新内容插在最前） ====================
     ctx.logger.info('\n[步骤3.5] 定位光标到第一张图片左侧');
 
