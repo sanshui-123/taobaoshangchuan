@@ -231,6 +231,16 @@ async function processRecord(record, ctx, opts = {}) {
   // 获取当前状态
   const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
   let currentStatus = fields[statusField];
+  const normalizeStatus = (s) => (s || '').toString().trim();
+  const normalizedStatus = normalizeStatus(currentStatus);
+  const partialKeywords = [
+    normalizeStatus(partialValue),
+    '前三步已更新',
+    '前三步已提交',
+    '前3步已更新',
+    '前3步已提交'
+  ].filter(Boolean);
+  const isPartialStatus = partialKeywords.some(k => k && normalizedStatus.includes(k));
 
   // 定义所有有效状态
   const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
@@ -273,10 +283,10 @@ async function processRecord(record, ctx, opts = {}) {
   }
 
   // 根据当前状态决定是否执行查重/跳过前置
-  if (currentStatus === partialValue) {
-    ctx.logger.info(`🔄 检测到状态为"${partialValue}"，跳过前置步骤（1-3），继续后续流程`);
+  if (isPartialStatus) {
+    ctx.logger.info(`🔄 检测到状态为"${normalizedStatus || partialValue}"，跳过前置步骤（1-3），继续后续流程`);
     skipPhaseA = true;
-    skipPhaseAReason = '已标记前三步已更新';
+    skipPhaseAReason = '已标记前三步已更新/已提交';
     if (skipPhaseARef) skipPhaseARef.value = true;
     // 标记步骤状态
     updateStepStatus(productId, 1, 'skipped');
@@ -415,7 +425,7 @@ async function processRecord(record, ctx, opts = {}) {
 
   // 状态不是"待上传"、"前三步已更新"、"上传失败"，则跳过处理
   // 允许重试失败的商品
-  if (currentStatus !== pendingValue && currentStatus !== partialValue && currentStatus !== errorValue) {
+  if (!isPartialStatus && currentStatus !== pendingValue && currentStatus !== errorValue) {
     ctx.logger.info(`当前状态为"${currentStatus}"，跳过处理`);
     // 将后续步骤全部标记为 skipped，避免后续误执行
     markAllSkipped(productId);

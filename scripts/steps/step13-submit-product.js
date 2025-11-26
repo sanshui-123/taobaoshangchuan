@@ -193,18 +193,35 @@ const step13 = async (ctx) => {
       throw clickError;
     }
 
-    // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次（保留旧逻辑，新增弹窗范围内匹配）
+    // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次（扩大匹配范围）
     try {
-      const violationDialog = page.locator('.next-dialog:has-text("商品发布违规提醒"), text=商品发布违规提醒').first();
-      if (await violationDialog.isVisible({ timeout: 3000 })) {
+      const dialogCandidates = [
+        page.locator('.next-dialog:has-text("商品发布违规提醒")'),
+        page.locator('[role="dialog"]:has-text("商品发布违规提醒")'),
+        page.locator('div:has-text("商品发布违规提醒"):has(button:has-text("返回修改"))'),
+        page.locator('div:has-text("流量严重受损"):has(button:has-text("返回修改"))')
+      ];
+
+      let violationDialog = null;
+      for (const dlg of dialogCandidates) {
+        if (dlg && await dlg.first().isVisible({ timeout: 500 }).catch(() => false)) {
+          violationDialog = dlg.first();
+          break;
+        }
+      }
+
+      if (violationDialog) {
         ctx.logger.warn('⚠️ 检测到“商品发布违规提醒”弹窗，执行返回修改后再提交一次');
-        // 优先在弹窗内找返回修改
         let backBtn = violationDialog.getByRole('button', { name: /返回修改/ }).first();
+        if (!(await backBtn.count())) {
+          backBtn = violationDialog.locator('button:has-text("返回修改")').first();
+        }
         if (!(await backBtn.count())) {
           backBtn = page.getByRole('button', { name: /返回修改/ }).first();
         }
-        if (await backBtn.isVisible({ timeout: 2000 })) {
-          await backBtn.click({ force: true });
+
+        if (await backBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await backBtn.click({ force: true }).catch(() => {});
           await page.waitForTimeout(800);
           // 再次点击提交
           await submitButton.click();

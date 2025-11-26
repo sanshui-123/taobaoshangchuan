@@ -427,45 +427,87 @@ const step11Detail = async (ctx) => {
 
     // 排序：文件名降序
     try {
-      ctx.logger.info('  排序：尝试选择“文件名降序”');
-      const sortTriggers = [
-        imageFrame.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
+      ctx.logger.info('  排序：尝试点击排序下拉并选择"文件名降序"');
+      const triggers = [
+        // 方式1：带文字的下拉选择器
+        imageFrame.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名|排序/ }).first(),
+        // 方式2：按钮角色
         imageFrame.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
-        imageFrame.locator('[data-testid*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
-        imageFrame.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first()
+        // 方式3：data-testid 或 class 包含 sort
+        imageFrame.locator('[data-testid*="sort"], [class*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
+        // 方式4：包含"排序"文字的元素
+        imageFrame.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first(),
+        // 方式5：下拉箭头图标（通常有 .next-icon-arrow-down）
+        imageFrame.locator('button').filter({ has: imageFrame.locator('.next-icon-arrow-down, .arrow-down') }).first(),
+        // 方式6：工具栏中的下拉按钮
+        imageFrame.locator('.toolbar, .action-bar, .filter-bar').locator('.next-select-trigger, select, button').first()
       ];
-      let sortTrigger = null;
-      for (const t of sortTriggers) {
-        if (t && await t.count()) { sortTrigger = t; break; }
+
+      let trigger = null;
+      for (let i = 0; i < triggers.length; i++) {
+        const t = triggers[i];
+        try {
+          const count = await t.count();
+          if (count > 0) {
+            ctx.logger.info(`  找到排序触发器（方式${i + 1}），共${count}个`);
+            trigger = t;
+            break;
+          }
+        } catch (e) {
+          // 忽略单个选择器的错误，继续尝试下一个
+        }
       }
-      if (sortTrigger) {
-        await sortTrigger.click({ force: true });
-        await page.waitForTimeout(300);
+
+      if (trigger) {
+        await trigger.click({ force: true });
+        await page.waitForTimeout(500);  // 增加等待时间，让下拉菜单完全展开
+
         const optionSelectors = [
           'li.next-menu-item:has-text("文件名降序")',
           'li:has-text("文件名降序")',
           'li:has-text("文件名倒序")',
           'li:has-text("名称降序")',
           'li:has-text("按文件名降序")',
-          '[role="option"]:has-text("文件名降序")'
+          '[role="option"]:has-text("文件名降序")',
+          '[role="menuitem"]:has-text("文件名降序")',
+          '.next-menu-item:has-text("降序")',
+          'text=/文件名.*降序/',
+          'text=/名称.*降序/'
         ];
+
         let option = null;
         for (const sel of optionSelectors) {
-          const candidate = imageFrame.locator(sel).first();
-          if (await candidate.count()) { option = candidate; break; }
+          try {
+            const candidate = page.locator(sel).first();  // 使用 page 而不是 imageFrame，因为下拉菜单可能在外层
+            const count = await candidate.count();
+            if (count > 0) {
+              ctx.logger.info(`  找到排序选项: ${sel}`);
+              option = candidate;
+              break;
+            }
+          } catch (e) {
+            // 忽略单个选择器的错误
+          }
         }
+
         if (option) {
           await option.click({ force: true });
-          ctx.logger.info('  ✅ 已选择“文件名降序”');
+          ctx.logger.info('  ✅ 已选择"文件名降序"');
           await page.waitForTimeout(400);
         } else {
-          ctx.logger.warn('  ⚠️ 未找到“文件名降序/倒序”选项，继续默认排序');
+          ctx.logger.warn('  ⚠️ 未找到"文件名降序/倒序"选项，继续默认排序');
+          // 尝试按ESC键关闭可能打开的下拉菜单
+          await page.keyboard.press('Escape');
         }
       } else {
         ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
       }
     } catch (e) {
       ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
+      // 尝试按ESC键关闭可能打开的下拉菜单
+      try {
+        await page.keyboard.press('Escape');
+      } catch {}
     }
 
     // ==================== 步骤8：从最后一张往前选择图片 ====================
@@ -546,9 +588,6 @@ const step11Detail = async (ctx) => {
     await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已点击素材库确定按钮');
-
-    // 如出现裁剪弹窗，自动点击“确定”
-    await handleCropConfirm(page, ctx);
 
     // ==================== 步骤10：点击编辑模块弹窗的"确定"按钮 ====================
     ctx.logger.info('\n[步骤10] 点击编辑模块弹窗确定按钮');

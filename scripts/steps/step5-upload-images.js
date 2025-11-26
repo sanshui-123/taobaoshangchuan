@@ -4,42 +4,124 @@ const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cac
 const { closeMaterialCenterPopups } = require('../utils/advert-handler');
 
 /**
- * 如果出现裁剪弹窗，点击“确定”继续
+ * 如果出现裁剪弹窗，点击"确定"继续
+ * @returns {boolean} 是否检测到并处理了裁剪弹窗
  */
 async function handleCropConfirm(page, ctx) {
   try {
-    const cropMask = page.locator('.media-wrap, [class*="media-wrap"], [class*="cropper"], .Footer_editOk__');
-    const okCandidates = [
-      page.locator('button:has-text("确定")').filter({ has: cropMask }).first(),
-      page.locator('.next-btn-primary:has-text("确定")').first(),
-      page.locator('button[class*="Footer_editOk"]').first()
+    // 裁剪弹窗的确定按钮选择器（必须有确定按钮才是裁剪弹窗）
+    const okSelectors = [
+      // 优先级1: 基于截图的精确匹配（button.next-btn.next-medium.next-btn-primary.Footer_editOk__PNagk）
+      'button.next-btn.next-medium.next-btn-primary[class*="Footer_editOk"]:has-text("确定")',
+      'button.next-btn-primary.next-medium[class*="Footer_editOk"]:has-text("确定")',
+      'button.next-btn.next-medium[class*="editOk"]:has-text("确定")',
+      // 优先级2: 裁剪相关的确定按钮
+      'button.next-btn-primary[class*="Footer_editOk"]:has-text("确定")',
+      'button[class*="Footer_editOk"].next-btn-primary:has-text("确定")',
+      'button[class*="editOk"]:has-text("确定")',
+      '.Footer_editOk__ button:has-text("确定")',
+      '.edit-ok button:has-text("确定")'
     ];
 
-    const maskVisible = await cropMask.first().isVisible().catch(() => false);
-    let okBtn = null;
-    for (const btn of okCandidates) {
-      if (btn && await btn.isVisible().catch(() => false)) {
-        okBtn = btn;
-        break;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // 先检测确定按钮是否存在（避免误判素材库弹窗为裁剪弹窗）
+      let okBtn = null;
+      let matchedSelector = null;
+      for (const sel of okSelectors) {
+        const btn = page.locator(sel).first();
+        if (btn && await btn.isVisible().catch(() => false) && await btn.isEnabled().catch(() => false)) {
+          okBtn = btn;
+          matchedSelector = sel;
+          break;
+        }
       }
-    }
 
-    if (maskVisible || okBtn) {
-      ctx.logger.info('  检测到裁剪弹窗，尝试点击“确定”');
-      if (okBtn) {
-        await okBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+      // 只有找到裁剪弹窗的确定按钮，才认为是裁剪弹窗
+      if (!okBtn) {
+        return false; // 没有裁剪弹窗的确定按钮，说明不是裁剪弹窗
+      }
+
+      if (matchedSelector) {
+        ctx.logger.info(`  🎯 匹配到裁剪弹窗确定按钮: ${matchedSelector}`);
+      }
+
+      ctx.logger.info(`  检测到裁剪弹窗，尝试点击"确定"（第${attempt + 1}次）`);
+      let clicked = false;
+      try {
+        await okBtn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+        await okBtn.click({ force: true, timeout: 3000 });
+        clicked = true;
+      } catch (e) {
+        // 继续用 JS 兜底
+      }
+
+      if (!clicked) {
+        try {
+          const success = await page.evaluate((selectors) => {
+            for (const sel of selectors) {
+              const btn = document.querySelector(sel);
+              if (btn && !btn.disabled) {
+                btn.click();
+                return true;
+              }
+            }
+            return false;
+          }, okSelectors);
+          if (success) clicked = true;
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      if (!clicked) {
+        await page.keyboard.press('Enter').catch(() => {});
       }
       await page.waitForTimeout(800);
-      const stillVisible = await cropMask.first().isVisible().catch(() => false);
+
+      // 检查按钮是否消失（说明弹窗已关闭）
+      const stillVisible = await okBtn.isVisible().catch(() => false);
       if (!stillVisible) {
         ctx.logger.info('  ✅ 裁剪弹窗已关闭');
-      } else {
-        ctx.logger.warn('  ⚠️ 裁剪弹窗可能仍存在，请留意后续步骤');
+        return true; // 检测到并成功处理了裁剪弹窗
       }
     }
+    ctx.logger.warn('  ⚠️ 多次尝试后裁剪弹窗可能仍存在，请留意后续步骤');
+    return true; // 检测到裁剪弹窗，但可能未成功关闭
   } catch (e) {
     ctx.logger.warn(`  ⚠️ 处理裁剪弹窗时出错（忽略继续）: ${e.message}`);
+    return false;
   }
+}
+
+/**
+ * 素材库选图后的“确定”按钮点击（带兜底）
+ */
+async function confirmImageSelection(page, frameLocator, ctx) {
+  const candidates = [
+    frameLocator.locator('button:has(.next-btn-count):has-text("确定")').first(),
+    frameLocator.locator('button:has-text("确定")').first(),
+    page.locator('div.next-dialog-footer button:has-text("确定")').first(),
+    page.locator('button.next-btn-primary:has-text("确定")').first()
+  ];
+
+  for (const btn of candidates) {
+    try {
+      if (btn && await btn.isVisible({ timeout: 500 })) {
+        const enabled = await btn.isEnabled().catch(() => false);
+        if (!enabled) continue;
+        await btn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+        await btn.click({ force: true, timeout: 3000 });
+        await page.waitForTimeout(400);
+        const disappeared = await btn.waitFor({ state: 'detached', timeout: 2000 }).then(() => true).catch(() => false);
+        ctx.logger.info(`  ✅ 素材库确定按钮已点击${disappeared ? '并消失' : ''}`);
+        return true;
+      }
+    } catch (e) {
+      // 尝试下一个候选
+    }
+  }
+  ctx.logger.warn('  ⚠️ 未找到可点击的素材库“确定”按钮，继续后续流程');
+  return false;
 }
 
 // 素材库弹窗中的搜索框常见选择器（按优先级排序）
@@ -105,15 +187,24 @@ const step5 = async (ctx) => {
     const productId = ctx.productId;
 
     // 加载缓存获取商品信息
-    const taskCache = loadTaskCache(productId);
-    if (!taskCache.productData || !taskCache.productData.colors) {
-      throw new Error('缓存中没有商品颜色信息');
-    }
+  const taskCache = loadTaskCache(productId);
+  if (!taskCache.productData || !taskCache.productData.colors) {
+    throw new Error('缓存中没有商品颜色信息');
+  }
 
-    const colors = taskCache.productData.colors;
-    const colorCount = colors.length;
-    const brand = (taskCache.productData.brand || '').trim();
-    ctx.logger.info(`商品颜色数量: ${colorCount}`);
+  // 注释掉自动跳过逻辑,允许重新执行 Step5 进行测试
+  // 如果之前已经完成过 Step5，则直接跳过，避免重复上传
+  // const prevStatus = (taskCache.stepStatus && taskCache.stepStatus[5]) || '';
+  // if (prevStatus === 'done') {
+  //   ctx.logger.info('⚠️ 检测到 Step5 已完成，跳过主图上传以避免重复上传');
+  //   updateStepStatus(productId, 5, 'skipped');
+  //   return;
+  // }
+
+  const colors = taskCache.productData.colors;
+  const colorCount = colors.length;
+  const brand = (taskCache.productData.brand || '').trim();
+  ctx.logger.info(`商品颜色数量: ${colorCount}`);
 
     // 根据颜色数量确定策略
     const strategy = determineUploadStrategy(colorCount);
@@ -583,45 +674,87 @@ const step5 = async (ctx) => {
     // 排序：文件名降序
     const applySortDescending = async () => {
       try {
-        ctx.logger.info('  排序：尝试点击排序下拉并选择“文件名降序”');
+        ctx.logger.info('  排序：尝试点击排序下拉并选择"文件名降序"');
         const triggers = [
-          uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
+          // 方式1：带文字的下拉选择器
+          uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名|排序/ }).first(),
+          // 方式2：按钮角色
           uploadLocator.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
-          uploadLocator.locator('[data-testid*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
-          uploadLocator.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first()
+          // 方式3：data-testid 或 class 包含 sort
+          uploadLocator.locator('[data-testid*="sort"], [class*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
+          // 方式4：包含"排序"文字的元素
+          uploadLocator.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first(),
+          // 方式5：下拉箭头图标（通常有 .next-icon-arrow-down）
+          uploadLocator.locator('button').filter({ has: uploadLocator.locator('.next-icon-arrow-down, .arrow-down') }).first(),
+          // 方式6：工具栏中的下拉按钮
+          uploadLocator.locator('.toolbar, .action-bar, .filter-bar').locator('.next-select-trigger, select, button').first()
         ];
+
         let trigger = null;
-        for (const t of triggers) {
-          if (t && await t.count()) { trigger = t; break; }
+        for (let i = 0; i < triggers.length; i++) {
+          const t = triggers[i];
+          try {
+            const count = await t.count();
+            if (count > 0) {
+              ctx.logger.info(`  找到排序触发器（方式${i + 1}），共${count}个`);
+              trigger = t;
+              break;
+            }
+          } catch (e) {
+            // 忽略单个选择器的错误，继续尝试下一个
+          }
         }
+
         if (trigger) {
           await trigger.click({ force: true });
-          await page.waitForTimeout(300);
+          await page.waitForTimeout(500);  // 增加等待时间，让下拉菜单完全展开
+
           const optionSelectors = [
             'li.next-menu-item:has-text("文件名降序")',
             'li:has-text("文件名降序")',
             'li:has-text("文件名倒序")',
             'li:has-text("名称降序")',
             'li:has-text("按文件名降序")',
-            '[role="option"]:has-text("文件名降序")'
+            '[role="option"]:has-text("文件名降序")',
+            '[role="menuitem"]:has-text("文件名降序")',
+            '.next-menu-item:has-text("降序")',
+            'text=/文件名.*降序/',
+            'text=/名称.*降序/'
           ];
+
           let option = null;
           for (const sel of optionSelectors) {
-            const candidate = uploadLocator.locator(sel).first();
-            if (await candidate.count()) { option = candidate; break; }
+            try {
+              const candidate = page.locator(sel).first();  // 使用 page 而不是 uploadLocator，因为下拉菜单可能在外层
+              const count = await candidate.count();
+              if (count > 0) {
+                ctx.logger.info(`  找到排序选项: ${sel}`);
+                option = candidate;
+                break;
+              }
+            } catch (e) {
+              // 忽略单个选择器的错误
+            }
           }
+
           if (option) {
             await option.click({ force: true });
-            ctx.logger.info('  ✅ 已选择“文件名降序”');
+            ctx.logger.info('  ✅ 已选择"文件名降序"');
             await page.waitForTimeout(400);
           } else {
-            ctx.logger.warn('  ⚠️ 未找到“文件名降序/倒序”选项，继续默认排序');
+            ctx.logger.warn('  ⚠️ 未找到"文件名降序/倒序"选项，继续默认排序');
+            // 尝试按ESC键关闭可能打开的下拉菜单
+            await page.keyboard.press('Escape');
           }
         } else {
           ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
         }
       } catch (e) {
         ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
+        // 尝试按ESC键关闭可能打开的下拉菜单
+        try {
+          await page.keyboard.press('Escape');
+        } catch {}
       }
     };
 
@@ -680,7 +813,57 @@ const step5 = async (ctx) => {
       );
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // 如出现裁剪弹窗，自动点击“确定”
+      // ==================== 点击素材库确定按钮 ====================
+      ctx.logger.info('\n[步骤6.5] 点击素材库弹窗确定按钮');
+
+      try {
+        // 素材库弹窗的确定按钮：必须带计数 (参考 step11 实现)
+        const confirmWithCount = uploadLocator.locator('button:has(.next-btn-count):has-text("确定")');
+        const fallbackWithBracket = uploadLocator.locator('button').filter({
+          hasText: /\(\s*\d+\s*\)/
+        }).filter({
+          hasText: /确定|確定/
+        });
+
+        let imageLibraryConfirmBtn = confirmWithCount;
+        const primaryCount = await confirmWithCount.count();
+        const fallbackCount = await fallbackWithBracket.count();
+        ctx.logger.info(`  🔍 确定按钮匹配: primary=${primaryCount}, fallback=${fallbackCount}`);
+
+        if (primaryCount === 0 && fallbackCount > 0) {
+          imageLibraryConfirmBtn = fallbackWithBracket;
+          ctx.logger.info('  ℹ️ 使用括号数字匹配的兜底选择器');
+        }
+
+        await imageLibraryConfirmBtn.first().waitFor({ state: 'visible', timeout: 8000 });
+        await imageLibraryConfirmBtn.first().scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+
+        const enabled = await imageLibraryConfirmBtn.first().isEnabled();
+        if (!enabled) {
+          throw new Error('素材库确定按钮不可用');
+        }
+
+        await imageLibraryConfirmBtn.first().click({ force: true });
+
+        // 若首次点击后按钮仍存在，再尝试一次点击（防止首次未生效）
+        try {
+          await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 3000 });
+        } catch (e) {
+          ctx.logger.warn('  ⚠️ 首次点击后按钮仍在，重试一次');
+          await imageLibraryConfirmBtn.first().click({ force: true });
+        }
+
+        // 再等弹窗关闭或按钮消失，最多5秒
+        await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(500);
+
+        ctx.logger.info('  ✅ 已点击素材库确定按钮');
+      } catch (error) {
+        ctx.logger.warn(`  ⚠️ 点击确定按钮失败，尝试继续: ${error.message}`);
+      }
+
+      // 如出现裁剪弹窗，自动点击"确定"
       await handleCropConfirm(page, ctx);
 
       // ==================== 上传完成检查（限时） ====================
@@ -953,6 +1136,17 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
         selectedCount++;
         ctx.logger.info(`  ✅ 第${i+1}张 → 索引${targetIndex} → 成功`);
 
+        // 每次点击后检查是否出现裁剪弹窗
+        const page = ctx.page1;
+        if (page) {
+          ctx.logger.info(`  🔍 检查裁剪弹窗...`);
+          const cropDetected = await handleCropConfirm(page, ctx);
+          if (cropDetected) {
+            ctx.logger.info(`  ⚠️  检测到裁剪弹窗并处理，跳出选择循环，进入下一步`);
+            break; // 立即跳出循环
+          }
+        }
+
       } catch (error) {
         ctx.logger.warn(`  ❌ 第${i+1}张 → 失败: ${error.message}`);
       }
@@ -1085,6 +1279,17 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
 
       selectedCount++;
       ctx.logger.info(`  ✅ ${rule.name} → 索引${actualIndex} → 成功`);
+
+      // 每次点击后检查是否出现裁剪弹窗
+      const page = ctx.page1;
+      if (page) {
+        ctx.logger.info(`  🔍 检查裁剪弹窗...`);
+        const cropDetected = await handleCropConfirm(page, ctx);
+        if (cropDetected) {
+          ctx.logger.info(`  ⚠️  检测到裁剪弹窗并处理，跳出选择循环，进入下一步`);
+          break; // 立即跳出循环
+        }
+      }
 
     } catch (error) {
       ctx.logger.warn(`  ❌ ${rule.name} → 失败: ${error.message}`);
