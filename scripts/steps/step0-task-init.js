@@ -200,6 +200,7 @@ async function processRecord(record, ctx, opts = {}) {
   } = opts;
   // 本地标记，允许通过引用回传
   let skipPhaseA = skipPhaseARef ? skipPhaseARef.value : false;
+  let skipPhaseAReason = '';
   const { record_id, fields } = record;
   ctx.feishuRecordId = record_id;
 
@@ -275,7 +276,7 @@ async function processRecord(record, ctx, opts = {}) {
   if (currentStatus === partialValue) {
     ctx.logger.info(`🔄 检测到状态为"${partialValue}"，跳过前置步骤（1-3），继续后续流程`);
     skipPhaseA = true;
-    cacheData.skipPhaseA = true;
+    skipPhaseAReason = '已标记前三步已更新';
     if (skipPhaseARef) skipPhaseARef.value = true;
     // 标记步骤状态
     updateStepStatus(productId, 1, 'skipped');
@@ -422,10 +423,14 @@ async function processRecord(record, ctx, opts = {}) {
     return;
   }
 
-  // 更新状态为"处理中"（直接使用"待上传"）
-  await feishuClient.updateRecord(record_id, {
-    [statusField]: pendingValue
-  });
+  // 更新状态为"处理中"（直接使用"待上传"），如果已经标记过前三步则保留原状态
+  if (!skipPhaseA) {
+    await feishuClient.updateRecord(record_id, {
+      [statusField]: pendingValue
+    });
+  } else {
+    ctx.logger.info(`保持状态为"${partialValue}"（跳过1-3步：${skipPhaseAReason || '已完成前置步骤'}）`);
+  }
 
   // 辅助函数：获取字段值（处理数组和字符串）
   const getFieldValue = (fields, fieldName, defaultValue = '') => {

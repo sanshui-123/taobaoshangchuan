@@ -3,6 +3,45 @@ const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const { closeMaterialCenterPopups } = require('../utils/advert-handler');
 
+/**
+ * 如果出现裁剪弹窗，点击“确定”继续
+ */
+async function handleCropConfirm(page, ctx) {
+  try {
+    const cropMask = page.locator('.media-wrap, [class*="media-wrap"], [class*="cropper"], .Footer_editOk__');
+    const okCandidates = [
+      page.locator('button:has-text("确定")').filter({ has: cropMask }).first(),
+      page.locator('.next-btn-primary:has-text("确定")').first(),
+      page.locator('button[class*="Footer_editOk"]').first()
+    ];
+
+    const maskVisible = await cropMask.first().isVisible().catch(() => false);
+    let okBtn = null;
+    for (const btn of okCandidates) {
+      if (btn && await btn.isVisible().catch(() => false)) {
+        okBtn = btn;
+        break;
+      }
+    }
+
+    if (maskVisible || okBtn) {
+      ctx.logger.info('  检测到裁剪弹窗，尝试点击“确定”');
+      if (okBtn) {
+        await okBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+      }
+      await page.waitForTimeout(800);
+      const stillVisible = await cropMask.first().isVisible().catch(() => false);
+      if (!stillVisible) {
+        ctx.logger.info('  ✅ 裁剪弹窗已关闭');
+      } else {
+        ctx.logger.warn('  ⚠️ 裁剪弹窗可能仍存在，请留意后续步骤');
+      }
+    }
+  } catch (e) {
+    ctx.logger.warn(`  ⚠️ 处理裁剪弹窗时出错（忽略继续）: ${e.message}`);
+  }
+}
+
 // 素材库弹窗中的搜索框常见选择器（按优先级排序）
 const SEARCH_INPUT_SELECTORS = [
   'input[placeholder="请输入文件夹名称"]',
@@ -547,7 +586,9 @@ const step5 = async (ctx) => {
         ctx.logger.info('  排序：尝试点击排序下拉并选择“文件名降序”');
         const triggers = [
           uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
-          uploadLocator.getByRole('button', { name: /上传时间|文件名/ }).first()
+          uploadLocator.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
+          uploadLocator.locator('[data-testid*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
+          uploadLocator.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first()
         ];
         let trigger = null;
         for (const t of triggers) {
@@ -556,13 +597,25 @@ const step5 = async (ctx) => {
         if (trigger) {
           await trigger.click({ force: true });
           await page.waitForTimeout(300);
-          const option = uploadLocator.locator('li.next-menu-item:has-text("文件名降序")').first();
-          if (await option.count()) {
+          const optionSelectors = [
+            'li.next-menu-item:has-text("文件名降序")',
+            'li:has-text("文件名降序")',
+            'li:has-text("文件名倒序")',
+            'li:has-text("名称降序")',
+            'li:has-text("按文件名降序")',
+            '[role="option"]:has-text("文件名降序")'
+          ];
+          let option = null;
+          for (const sel of optionSelectors) {
+            const candidate = uploadLocator.locator(sel).first();
+            if (await candidate.count()) { option = candidate; break; }
+          }
+          if (option) {
             await option.click({ force: true });
             ctx.logger.info('  ✅ 已选择“文件名降序”');
             await page.waitForTimeout(400);
           } else {
-            ctx.logger.warn('  ⚠️ 未找到“文件名降序”选项，继续默认排序');
+            ctx.logger.warn('  ⚠️ 未找到“文件名降序/倒序”选项，继续默认排序');
           }
         } else {
           ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
@@ -626,6 +679,9 @@ const step5 = async (ctx) => {
         imageCardSelector  // 传入实际命中的卡片选择器，避免类名不一致
       );
       ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
+
+      // 如出现裁剪弹窗，自动点击“确定”
+      await handleCropConfirm(page, ctx);
 
       // ==================== 上传完成检查（限时） ====================
       ctx.logger.info('\n[步骤7] 检查上传完成状态...');

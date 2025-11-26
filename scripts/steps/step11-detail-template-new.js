@@ -1,6 +1,42 @@
 const { loadTaskCache, saveTaskCache } = require('../utils/cache');
 const { feishuClient } = require('../feishu/client');
 
+async function handleCropConfirm(page, ctx) {
+  try {
+    const cropMask = page.locator('.media-wrap, [class*="media-wrap"], [class*="cropper"], .Footer_editOk__');
+    const okCandidates = [
+      page.locator('button:has-text("确定")').filter({ has: cropMask }).first(),
+      page.locator('.next-btn-primary:has-text("确定")').first(),
+      page.locator('button[class*="Footer_editOk"]').first()
+    ];
+
+    const maskVisible = await cropMask.first().isVisible().catch(() => false);
+    let okBtn = null;
+    for (const btn of okCandidates) {
+      if (btn && await btn.isVisible().catch(() => false)) {
+        okBtn = btn;
+        break;
+      }
+    }
+
+    if (maskVisible || okBtn) {
+      ctx.logger.info('  检测到裁剪弹窗，尝试点击“确定”');
+      if (okBtn) {
+        await okBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+      }
+      await page.waitForTimeout(800);
+      const stillVisible = await cropMask.first().isVisible().catch(() => false);
+      if (!stillVisible) {
+        ctx.logger.info('  ✅ 裁剪弹窗已关闭');
+      } else {
+        ctx.logger.warn('  ⚠️ 裁剪弹窗可能仍存在，请留意后续步骤');
+      }
+    }
+  } catch (e) {
+    ctx.logger.warn(`  ⚠️ 处理裁剪弹窗时出错（忽略继续）: ${e.message}`);
+  }
+}
+
 /**
  * 步骤11：填写详情模板
  * 简化版实现，按用户精确操作流程
@@ -394,7 +430,9 @@ const step11Detail = async (ctx) => {
       ctx.logger.info('  排序：尝试选择“文件名降序”');
       const sortTriggers = [
         imageFrame.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
-        imageFrame.getByRole('button', { name: /上传时间|文件名/ }).first()
+        imageFrame.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
+        imageFrame.locator('[data-testid*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
+        imageFrame.getByText(/排序/).locator('..').locator('button, .next-select-trigger').first()
       ];
       let sortTrigger = null;
       for (const t of sortTriggers) {
@@ -403,13 +441,25 @@ const step11Detail = async (ctx) => {
       if (sortTrigger) {
         await sortTrigger.click({ force: true });
         await page.waitForTimeout(300);
-        const option = imageFrame.locator('li.next-menu-item:has-text("文件名降序")').first();
-        if (await option.count()) {
+        const optionSelectors = [
+          'li.next-menu-item:has-text("文件名降序")',
+          'li:has-text("文件名降序")',
+          'li:has-text("文件名倒序")',
+          'li:has-text("名称降序")',
+          'li:has-text("按文件名降序")',
+          '[role="option"]:has-text("文件名降序")'
+        ];
+        let option = null;
+        for (const sel of optionSelectors) {
+          const candidate = imageFrame.locator(sel).first();
+          if (await candidate.count()) { option = candidate; break; }
+        }
+        if (option) {
           await option.click({ force: true });
           ctx.logger.info('  ✅ 已选择“文件名降序”');
           await page.waitForTimeout(400);
         } else {
-          ctx.logger.warn('  ⚠️ 未找到“文件名降序”选项，继续默认排序');
+          ctx.logger.warn('  ⚠️ 未找到“文件名降序/倒序”选项，继续默认排序');
         }
       } else {
         ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
@@ -496,6 +546,9 @@ const step11Detail = async (ctx) => {
     await page.waitForTimeout(500);  // 优化：1500ms降到500ms
 
     ctx.logger.info('  ✅ 已点击素材库确定按钮');
+
+    // 如出现裁剪弹窗，自动点击“确定”
+    await handleCropConfirm(page, ctx);
 
     // ==================== 步骤10：点击编辑模块弹窗的"确定"按钮 ====================
     ctx.logger.info('\n[步骤10] 点击编辑模块弹窗确定按钮');
