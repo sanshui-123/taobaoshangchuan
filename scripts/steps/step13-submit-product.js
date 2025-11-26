@@ -163,16 +163,20 @@ const step13 = async (ctx) => {
     await submitButton.scrollIntoViewIfNeeded();
     await page.waitForTimeout(1000);
 
-  // 点击提交按钮
-  ctx.logger.info('点击提交按钮...');
-  await submitButton.click();
+    // 点击提交按钮
+    ctx.logger.info('点击提交按钮...');
+    await submitButton.click();
 
-    // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次
+    // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次（保留旧逻辑，新增弹窗范围内匹配）
     try {
-      const violationDialog = page.locator('text=商品发布违规提醒').first();
+      const violationDialog = page.locator('.next-dialog:has-text("商品发布违规提醒"), text=商品发布违规提醒').first();
       if (await violationDialog.isVisible({ timeout: 3000 })) {
         ctx.logger.warn('⚠️ 检测到“商品发布违规提醒”弹窗，执行返回修改后再提交一次');
-        const backBtn = page.getByRole('button', { name: /返回修改/ }).first();
+        // 优先在弹窗内找返回修改
+        let backBtn = violationDialog.getByRole('button', { name: /返回修改/ }).first();
+        if (!(await backBtn.count())) {
+          backBtn = page.getByRole('button', { name: /返回修改/ }).first();
+        }
         if (await backBtn.isVisible({ timeout: 2000 })) {
           await backBtn.click({ force: true });
           await page.waitForTimeout(800);
@@ -187,8 +191,8 @@ const step13 = async (ctx) => {
       ctx.logger.warn(`  ⚠️ 检测违规提醒弹窗失败: ${e.message}，继续后续流程`);
     }
 
-  // 步骤3：等待页面跳转到成功页面（关键修复：等待URL包含success）
-  ctx.logger.info('\n[步骤3] 等待页面跳转到成功页面');
+    // 步骤3：等待页面跳转到成功页面（关键修复：等待URL包含success）
+    ctx.logger.info('\n[步骤3] 等待页面跳转到成功页面');
 
     let reachedSuccessPage = false;
 
