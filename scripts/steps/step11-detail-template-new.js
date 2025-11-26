@@ -289,36 +289,48 @@ const step11Detail = async (ctx) => {
 
     // 文案和尺码表已插入在图片上方
     // 现在需要重新定位到模板第一张图片前，确保后续插入的商品图片在正确位置
+    // 使用和插入文字一样的DOM Range API方法，确保位置准确
     try {
-      // 在编辑弹窗中找到第一张图片（模板图片）
-      const dialog = page.locator('.next-dialog-body [contenteditable="true"]').first();
-      const firstImage = dialog.locator('img').first();
+      const success = await page.evaluate(() => {
+        const editable = document.querySelector('.next-dialog-body [contenteditable="true"]');
+        if (!editable) return false;
 
-      if (await firstImage.isVisible({ timeout: 2000 })) {
-        ctx.logger.info('  ✅ 找到模板第一张图片');
+        // 移除旧锚点
+        const old = editable.querySelector('#__cursor_anchor_img__');
+        if (old) old.remove();
 
-        // hover到图片
-        await firstImage.hover();
+        // 创建新锚点
+        const anchor = document.createElement('span');
+        anchor.id = '__cursor_anchor_img__';
+        anchor.style.display = 'inline-block';
+        anchor.style.width = '0';
 
-        // 获取图片坐标
-        const box = await firstImage.boundingBox();
-        if (box) {
-          // 在图片左侧点击（左边5px，下边5px）
-          await page.mouse.click(box.x - 5, box.y + 5);
-          ctx.logger.info('  ✅ 点击了图片左侧位置');
-
-          // 按Enter和ArrowUp预留空行，确保光标在正确位置
-          await page.keyboard.press('Enter');
-          await page.keyboard.press('ArrowUp');
-
-          ctx.logger.info('  ✅ 光标已定位到模板图片前，准备插入商品图片');
+        // 找到第一张图片，在其前面插入锚点
+        const firstImg = editable.querySelector('img');
+        if (firstImg && firstImg.parentNode) {
+          firstImg.parentNode.insertBefore(anchor, firstImg);
         } else {
-          ctx.logger.warn('  ⚠️ 无法获取图片坐标，使用备用方案');
-          await firstImage.click();
-          await page.keyboard.press('ArrowLeft');
+          // 如果没有图片，插入到可编辑区域的最前面
+          editable.insertBefore(anchor, editable.firstChild);
         }
+
+        // 使用DOM Range API设置光标位置
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(anchor, 0);
+        range.setEnd(anchor, 0);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      });
+
+      if (success) {
+        // 预留空行，确保后续插入在图片之前
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('ArrowUp');
+        ctx.logger.info('  ✅ 已使用DOM Range API将光标定位到模板图片前，准备插入商品图片');
       } else {
-        ctx.logger.warn('  ⚠️ 未找到模板图片，光标保持在文案末尾');
+        ctx.logger.warn('  ⚠️ DOM定位失败，光标保持当前位置');
       }
     } catch (e) {
       ctx.logger.warn(`  ⚠️ 重新定位失败: ${e.message}，光标保持当前位置`);
