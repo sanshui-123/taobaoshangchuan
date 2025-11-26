@@ -29,43 +29,9 @@ const step7 = async (ctx) => {
     ctx.logger.info(`商品ID: ${productId}`);
 
     // ============================================
-    // 步骤1：切换到"销售信息"tab
+    // 步骤1：填写"商家编码"（直接定位，不切换tab）
     // ============================================
-    ctx.logger.info('\n[步骤1] 切换到"销售信息"tab');
-
-    const salesTabSelectors = [
-      'li.next-menu-item:has-text("销售信息")',
-      'li.next-nav-item:has-text("销售信息")',
-      '.next-menu-item:has-text("销售信息")',
-      '[role="option"]:has-text("销售信息")'
-    ];
-
-    let salesTab = null;
-    for (const selector of salesTabSelectors) {
-      try {
-        salesTab = await page.$(selector);
-        if (salesTab) {
-          ctx.logger.info(`  找到销售信息tab: ${selector}`);
-          break;
-        }
-      } catch (e) {
-        // 继续尝试
-      }
-    }
-
-    if (!salesTab) {
-      throw new Error('未找到"销售信息"tab，无法切换');
-    }
-
-    // 点击切换到销售信息
-    await salesTab.click();
-    ctx.logger.success('✅ 已切换到"销售信息"tab');
-    await page.waitForTimeout(300);
-
-    // ============================================
-    // 步骤2：填写"商家编码"（销售信息页签）
-    // ============================================
-    ctx.logger.info('\n[步骤2] 填写商家编码（销售信息页签）');
+    ctx.logger.info('\n[步骤1] 填写商家编码');
 
     // 使用精确定位：优先使用ID选择器（最稳定）
     ctx.logger.info('  定位商家编码输入框...');
@@ -124,43 +90,9 @@ const step7 = async (ctx) => {
     }
 
     // ============================================
-    // 步骤3：切换回"基础信息"tab
+    // 步骤2：填写"货号"（直接定位，不切换tab）
     // ============================================
-    ctx.logger.info('\n[步骤3] 切换回"基础信息"tab');
-
-    const basicTabSelectors = [
-      'li.next-menu-item:has-text("基础信息")',
-      'li.next-nav-item:has-text("基础信息")',
-      '.next-menu-item:has-text("基础信息")',
-      '[role="option"]:has-text("基础信息")'
-    ];
-
-    let basicTab = null;
-    for (const selector of basicTabSelectors) {
-      try {
-        basicTab = await page.$(selector);
-        if (basicTab) {
-          ctx.logger.info(`  找到基础信息tab: ${selector}`);
-          break;
-        }
-      } catch (e) {
-        // 继续尝试
-      }
-    }
-
-    if (!basicTab) {
-      throw new Error('未找到"基础信息"tab，无法切换');
-    }
-
-    // 点击切换到基础信息
-    await basicTab.click();
-    ctx.logger.success('✅ 已切换到"基础信息"tab');
-    await page.waitForTimeout(300);
-
-    // ============================================
-    // 步骤4：填写"货号"（基础信息页签）
-    // ============================================
-    ctx.logger.info('\n[步骤4] 填写货号（基础信息页签）');
+    ctx.logger.info('\n[步骤2] 填写货号');
 
     // 使用语义定位：通过文本关联到输入框（最佳实践）
     // 不限定必须是label标签，可以是span/div等任何包含"货号"文本的元素
@@ -284,7 +216,7 @@ const step7 = async (ctx) => {
     }
 
     // ============================================
-    // 步骤5：填写"适用性别"（基础信息页签）
+    // 步骤3：填写"适用性别"
     // ============================================
     // 高尔夫球服类目跳过性别填写
     if (categoryPath && categoryPath.includes('高尔夫球服')) {
@@ -292,7 +224,7 @@ const step7 = async (ctx) => {
       return;
     }
 
-    ctx.logger.info('\n[步骤5] 填写适用性别（基础信息页签）');
+    ctx.logger.info('\n[步骤3] 填写适用性别');
 
     // 从缓存优先读取性别（飞书字段）
     const taskCache = loadTaskCache(productId);
@@ -356,9 +288,9 @@ const step7 = async (ctx) => {
     }
 
     // ============================================
-    // 步骤6：更新缓存
+    // 步骤4：更新缓存
     // ============================================
-    ctx.logger.info('\n[步骤6] 更新缓存');
+    ctx.logger.info('\n[步骤4] 更新缓存');
 
     const taskCacheFinal = loadTaskCache(productId);
     if (taskCacheFinal) {

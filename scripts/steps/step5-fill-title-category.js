@@ -139,6 +139,29 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     // ==================== 第三部分：选择服装分类 ====================
     logger.info('\n[步骤3] 选择服装分类');
 
+    // 防遮挡：清理常见拦截元素（SKU 预览 iframe / 导航遮罩等）
+    try {
+      await page.evaluate(() => {
+        const blockers = [
+          '#sku-preview-iframe',
+          '.iframe.trans#sku-preview-iframe',
+          '.container-ZETowy',
+          '.next-menu.next-nav'
+        ];
+        blockers.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => {
+            // 隐藏而非删除，降低副作用
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+          });
+        });
+      });
+      logger.info('  ✅ 已隐藏可能遮挡分类下拉的元素');
+    } catch (e) {
+      logger.warn(`  ⚠️ 清理遮挡元素失败（忽略继续）: ${e.message}`);
+    }
+
     // 依次尝试候选类目，命中即止
     let categorySelected = false;
     for (const taobaoCategory of candidateCategories) {
@@ -154,7 +177,7 @@ async function fillTitleAndCategory(page, productData, logger = console) {
       }
       const categoryField = categoryLabel.first().locator('..').locator('..').locator('div').first();
       try {
-        await categoryField.click();
+        await categoryField.click({ force: true });
       } catch (e) {
         logger.warn(`  ⚠️ 分类下拉点击失败，跳过分类选择: ${e.message}`);
         break; // 不阻塞后续步骤
@@ -222,23 +245,13 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     if (!categorySelected) {
       logger.warn(`  ⚠️ 未能匹配候选分类 (${candidateCategories.join(', ')})，尝试选择下拉第一项作为兜底`);
 
-      // 兜底：打开下拉，选择第一项
-      await page.locator('span').filter({
-        hasText: /POLO|T恤|其他|卫衣|场训服|外套|套装|比赛服|短袖|短裙|短裤|紧身衣裤|背心|腰带|袜子|训练服|连衣裙|长袖|长裤|马甲/
-      }).nth(2).click();
-      await page.waitForTimeout(500);
-
-      const options = page.locator('.next-menu-item, li[role="option"]');
-      const optionCount = await options.count().catch(() => 0);
-      if (optionCount > 0) {
-        const firstOption = options.first();
-        const text = await firstOption.textContent().catch(() => '');
-        await firstOption.click({ timeout: 3000 });
-        await page.waitForTimeout(400);
-        logger.warn(`  ⚠️ 未命中候选，已选下拉第一项: ${text?.trim() || '未知'}`);
-        categorySelected = true;
-      } else {
-        logger.warn('  ⚠️ 下拉没有可选项，保持当前值继续');
+      // 兜底：直接按ESC关闭下拉，保持当前值继续（避免误点击导航栏）
+      try {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        logger.warn('  ⚠️ 未命中候选，已关闭下拉，保持当前默认值继续');
+      } catch (e) {
+        logger.warn(`  ⚠️ 关闭下拉失败: ${e.message}`);
       }
     }
 

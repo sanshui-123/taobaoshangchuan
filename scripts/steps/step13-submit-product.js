@@ -159,13 +159,39 @@ const step13 = async (ctx) => {
       throw new Error('提交按钮不可用，可能还有必填项未完成');
     }
 
-    // 滚动到按钮位置
-    await submitButton.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(1000);
+    // 清理可能遮挡提交按钮的元素，并使用JavaScript直接点击
+    ctx.logger.info('准备点击提交按钮（清理遮挡+JS点击）...');
+    try {
+      await submitButton.evaluate((button) => {
+        // 1. 清理可能遮挡的元素
+        const blockers = [
+          '#sku-preview-iframe',
+          '.iframe.trans#sku-preview-iframe',
+          '.next-overlay-wrapper.v2.opened',
+          '#mainImagesGroup',
+          '.container-ZETowy',
+          '.next-menu.next-nav'
+        ];
+        blockers.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => {
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+          });
+        });
 
-    // 点击提交按钮
-    ctx.logger.info('点击提交按钮...');
-    await submitButton.click();
+        // 2. 滚动到按钮位置
+        button.scrollIntoView({ behavior: 'auto', block: 'center' });
+
+        // 3. 直接点击按钮（绕过所有可见性检查）
+        button.click();
+      });
+      ctx.logger.info('✅ 已通过JavaScript成功点击提交按钮');
+      await page.waitForTimeout(800);
+    } catch (clickError) {
+      ctx.logger.error(`JavaScript点击失败: ${clickError.message}`);
+      throw clickError;
+    }
 
     // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次（保留旧逻辑，新增弹窗范围内匹配）
     try {
