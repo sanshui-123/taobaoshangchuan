@@ -193,41 +193,263 @@ const step13 = async (ctx) => {
       throw clickError;
     }
 
-    // 检测“商品发布违规提醒”弹窗，若出现先点“返回修改”再重新提交一次（扩大匹配范围）
+    // 检测"商品发布违规提醒"弹窗 - 循环持续检测（增强版）
+    ctx.logger.info('\n[检测违规提醒弹窗] 启动循环检测...');
+    let violationDialogDetected = false;
+
     try {
       const dialogCandidates = [
-        page.locator('.next-dialog:has-text("商品发布违规提醒")'),
-        page.locator('[role="dialog"]:has-text("商品发布违规提醒")'),
-        page.locator('div:has-text("商品发布违规提醒"):has(button:has-text("返回修改"))'),
-        page.locator('div:has-text("流量严重受损"):has(button:has-text("返回修改"))')
+        { locator: page.locator('.next-dialog:has-text("商品发布违规提醒")'), name: '.next-dialog' },
+        { locator: page.locator('[role="dialog"]:has-text("商品发布违规提醒")'), name: '[role="dialog"]' },
+        { locator: page.locator('div:has-text("商品发布违规提醒"):has(button:has-text("返回修改"))'), name: 'div with button' },
+        { locator: page.locator('div:has-text("流量严重受损"):has(button:has-text("返回修改"))'), name: '流量严重受损' },
+        { locator: page.locator('.next-overlay-wrapper:has-text("商品发布违规提醒")'), name: '.next-overlay-wrapper' },
+        { locator: page.locator('[class*="dialog"]:has-text("违规")'), name: 'dialog with 违规' }
       ];
 
       let violationDialog = null;
-      for (const dlg of dialogCandidates) {
-        if (dlg && await dlg.first().isVisible({ timeout: 500 }).catch(() => false)) {
-          violationDialog = dlg.first();
-          break;
+      let matchedSelector = null;
+
+      // 循环检测 15 秒，每 1 秒检查一次
+      const maxAttempts = 15;
+      let attempt = 0;
+
+      while (attempt < maxAttempts && !violationDialog) {
+        attempt++;
+
+        // 每次循环检查所有候选选择器
+        for (const candidate of dialogCandidates) {
+          if (!candidate.locator) continue;
+          try {
+            // 使用较短的超时时间，快速尝试
+            const isVisible = await candidate.locator.first().isVisible({ timeout: 500 });
+            if (isVisible) {
+              violationDialog = candidate.locator.first();
+              matchedSelector = candidate.name;
+              ctx.logger.info(`  ✅ 第 ${attempt} 次检测：通过 ${matchedSelector} 检测到违规弹窗`);
+              violationDialogDetected = true;
+              break;
+            }
+          } catch (e) {
+            // 继续尝试下一个候选
+          }
+        }
+
+        if (!violationDialog) {
+          // 每隔 1 秒重试
+          await page.waitForTimeout(1000);
+          if (attempt % 3 === 0) {
+            ctx.logger.info(`  🔍 第 ${attempt}/${maxAttempts} 次检测中...`);
+          }
         }
       }
 
-      if (violationDialog) {
-        ctx.logger.warn('⚠️ 检测到“商品发布违规提醒”弹窗，执行返回修改后再提交一次');
-        let backBtn = violationDialog.getByRole('button', { name: /返回修改/ }).first();
-        if (!(await backBtn.count())) {
-          backBtn = violationDialog.locator('button:has-text("返回修改")').first();
-        }
-        if (!(await backBtn.count())) {
-          backBtn = page.getByRole('button', { name: /返回修改/ }).first();
+      if (attempt >= maxAttempts && !violationDialog) {
+        ctx.logger.info(`  ℹ️ 循环检测 ${maxAttempts} 次后未发现对话框`);
+      }
+
+      if (!violationDialog) {
+        ctx.logger.info('  ℹ️ 未通过对话框选择器检测到违规弹窗');
+        ctx.logger.info('  🔍 启动全局兜底检测：直接查找"返回修改"按钮...');
+
+        // 全局兜底：尝试多种按钮文字变体
+        const backBtnTextVariants = [
+          'button:has-text("返回修改")',
+          'button:has-text("返回编辑")',
+          'button:has-text("修改")',
+          'button:has-text("返回")',
+          '.next-btn:has-text("返回")',
+          '.next-btn:has-text("修改")'
+        ];
+
+        let globalBackBtn = null;
+
+        // 循环尝试所有按钮文字变体
+        for (const btnSelector of backBtnTextVariants) {
+          try {
+            const btn = page.locator(btnSelector).first();
+            const isVisible = await btn.isVisible({ timeout: 1000 });
+            if (isVisible) {
+              globalBackBtn = btn;
+              ctx.logger.warn(`  ⚠️ 全局兜底成功：找到按钮 "${btnSelector}"！`);
+              break;
+            }
+          } catch (e) {
+            // 继续尝试下一个变体
+          }
         }
 
-        if (await backBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await backBtn.click({ force: true }).catch(() => {});
-          await page.waitForTimeout(800);
-          // 再次点击提交
-          await submitButton.click();
-          ctx.logger.info('  ✅ 已处理违规提醒并重新点击提交');
+        if (globalBackBtn) {
+          try {
+
+            // 点击"返回修改"
+            await globalBackBtn.click({ force: true, timeout: 3000 });
+            ctx.logger.info('  ✅ 已点击"返回修改"（全局兜底），等待弹窗关闭...');
+            await page.waitForTimeout(2000);
+
+            // 等待任何可能的弹窗消失（使用通用选择器）
+            try {
+              await page.locator('.next-dialog, [role="dialog"], .next-overlay-wrapper').first()
+                .waitFor({ state: 'hidden', timeout: 5000 });
+              ctx.logger.info('  ✅ 弹窗已关闭');
+            } catch (e) {
+              ctx.logger.warn('  ⚠️ 等待弹窗关闭超时，继续执行');
+            }
+
+            // 重新提交（使用相同的清理逻辑）
+            ctx.logger.info('  🔄 准备重新提交商品（全局兜底）...');
+
+            // 等待页面稳定（按钮可能需要重新渲染）
+            await page.waitForTimeout(3000);
+            ctx.logger.info('  ⏳ 已等待页面稳定，开始查找提交按钮...');
+
+            // 调试：列出页面上所有可见的按钮
+            try {
+              const allButtons = await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button'));
+                return buttons
+                  .filter(btn => {
+                    const rect = btn.getBoundingClientRect();
+                    const style = window.getComputedStyle(btn);
+                    return style.display !== 'none' &&
+                           style.visibility !== 'hidden' &&
+                           rect.width > 0 &&
+                           rect.height > 0;
+                  })
+                  .map(btn => ({
+                    text: btn.textContent.trim().substring(0, 30),
+                    className: btn.className.substring(0, 50)
+                  }));
+              });
+              ctx.logger.info(`  📋 页面上可见的按钮数量: ${allButtons.length}`);
+              if (allButtons.length > 0) {
+                ctx.logger.info(`  📋 所有按钮列表:`);
+                allButtons.forEach((btn, idx) => {
+                  ctx.logger.info(`    ${idx + 1}. "${btn.text}" (${btn.className})`);
+                });
+              }
+            } catch (e) {
+              ctx.logger.warn(`  ⚠️ 调试按钮列表失败: ${e.message}`);
+            }
+
+            const submitSelectors = [
+              'button:has-text("提交宝贝信息")',
+              'button:has-text("继续发布")',
+              'button.next-btn-primary:has-text("提交")',
+              'button:has-text("发布")',
+              'button:has-text("提交")'
+            ];
+
+            let freshSubmit = null;
+            for (const selector of submitSelectors) {
+              try {
+                ctx.logger.info(`  🔍 尝试选择器: ${selector}`);
+                const btn = page.locator(selector).first();
+
+                // 增加超时时间
+                const isVisible = await btn.isVisible({ timeout: 5000 });
+                if (isVisible) {
+                  freshSubmit = btn;
+                  ctx.logger.info(`  ✅ 重新找到提交按钮: ${selector}`);
+                  break;
+                }
+              } catch (e) {
+                ctx.logger.warn(`  ⚠️ 选择器 ${selector} 未找到，尝试下一个`);
+              }
+            }
+
+            if (freshSubmit) {
+              try {
+                await freshSubmit.evaluate((button) => {
+                  const blockers = [
+                    '#sku-preview-iframe',
+                    '.iframe.trans#sku-preview-iframe',
+                    '.next-overlay-wrapper.v2.opened',
+                    '#mainImagesGroup',
+                    '.container-ZETowy',
+                    '.next-menu.next-nav'
+                  ];
+                  blockers.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => {
+                      el.style.setProperty('display', 'none', 'important');
+                      el.style.setProperty('visibility', 'hidden', 'important');
+                      el.style.setProperty('pointer-events', 'none', 'important');
+                    });
+                  });
+                  button.scrollIntoView({ behavior: 'auto', block: 'center' });
+                  button.click();
+                });
+                ctx.logger.info('  ✅ 已处理违规提醒并重新提交商品（全局兜底）');
+                await page.waitForTimeout(2000);
+              } catch (resubmitError) {
+                ctx.logger.error(`  ❌ 重新提交失败: ${resubmitError.message}`);
+              }
+            } else {
+              ctx.logger.error('  ❌ 未找到提交按钮，无法重新提交');
+            }
+          } catch (clickError) {
+            ctx.logger.error(`  ❌ 全局兜底点击失败: ${clickError.message}`);
+          }
         } else {
-          ctx.logger.warn('  ⚠️ 未找到“返回修改”按钮，继续后续流程');
+          ctx.logger.info('  ℹ️ 全局兜底：未找到任何"返回修改"相关按钮，继续正常流程');
+        }
+      } else {
+        ctx.logger.warn('⚠️ 检测到"商品发布违规提醒"弹窗，尝试点击"继续提交"按钮');
+
+        // 尝试多种方式查找"继续提交"按钮（在弹窗内，位于"返回修改"左侧）
+        const continueSubmitSelectors = [
+          violationDialog.locator('button:has-text("继续提交")'),
+          violationDialog.locator('button:has-text("继续发布")'),
+          violationDialog.locator('button:has-text("确认提交")'),
+          violationDialog.locator('button:has-text("确认发布")'),
+          violationDialog.locator('.next-btn-primary:has-text("继续")'),
+          violationDialog.locator('.next-btn-primary:has-text("提交")'),
+          page.getByRole('button', { name: /继续提交/i }),
+          page.getByRole('button', { name: /继续发布/i }),
+          page.locator('button:has-text("继续提交")'),
+          page.locator('button:has-text("继续发布")')
+        ];
+
+        let continueBtn = null;
+        let matchedSelector = null;
+        for (let i = 0; i < continueSubmitSelectors.length; i++) {
+          const selector = continueSubmitSelectors[i];
+          try {
+            if (await selector.first().isVisible({ timeout: 2000 })) {
+              continueBtn = selector.first();
+              matchedSelector = `选择器 #${i + 1}`;
+              ctx.logger.info(`  ✅ 找到"继续提交"按钮 (${matchedSelector})`);
+              break;
+            }
+          } catch (e) {
+            // 继续尝试下一个选择器
+          }
+        }
+
+        if (continueBtn) {
+          try {
+            // 直接点击"继续提交"按钮，无需返回修改
+            await continueBtn.click({ force: true, timeout: 3000 });
+            ctx.logger.info('  ✅ 已点击"继续提交"按钮，等待弹窗关闭...');
+            await page.waitForTimeout(2000);
+
+            // 等待弹窗消失
+            try {
+              await violationDialog.waitFor({ state: 'hidden', timeout: 5000 });
+              ctx.logger.info('  ✅ 违规弹窗已关闭，商品提交中...');
+            } catch (e) {
+              ctx.logger.warn('  ⚠️ 等待弹窗关闭超时，继续执行');
+            }
+
+            // 等待一下让提交处理完成
+            await page.waitForTimeout(2000);
+            ctx.logger.info('  ✅ 已处理违规提醒并继续提交商品');
+
+          } catch (clickError) {
+            ctx.logger.error(`  ❌ 点击"继续提交"失败: ${clickError.message}`);
+          }
+        } else {
+          ctx.logger.warn('  ⚠️ 未找到"继续提交"按钮，继续后续流程');
         }
       }
     } catch (e) {
@@ -289,7 +511,7 @@ const step13 = async (ctx) => {
       const currentUrl = page.url();
       ctx.logger.info(`当前页面URL: ${currentUrl}`);
 
-      // 只要URL包含success或result，就认定提交成功
+      // 检查URL是否包含成功标识
       if (currentUrl.includes('success') ||
           currentUrl.includes('result') ||
           currentUrl.includes('publish/success')) {
@@ -315,6 +537,28 @@ const step13 = async (ctx) => {
         saveTaskCache(productId, taskCache);
         ctx.logger.info('💾 成功状态已保存到缓存');
 
+      } else if (currentUrl.includes('copyItem=true')) {
+        // 检测到 copyItem=true，说明淘宝可能已创建草稿但跳转到了复制/编辑页面
+        const itemIdMatch = currentUrl.match(/itemId=(\d+)/);
+        const taobaoItemId = itemIdMatch ? itemIdMatch[1] : null;
+
+        if (taobaoItemId) {
+          ctx.logger.warn(`⚠️ 检测到 copyItem 页面，淘宝已创建商品草稿 (ID: ${taobaoItemId})，但可能因违规未正式发布`);
+          ctx.logger.warn('  这通常表示提交时出现了违规提醒，但违规弹窗可能未被正确处理');
+          ctx.logger.info(`  建议手动检查淘宝后台商品: https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${taobaoItemId}`);
+
+          submitResult = {
+            status: 'draft',
+            message: `商品草稿已创建 (ID: ${taobaoItemId})，但可能因违规未正式发布。URL: ${currentUrl}`,
+            taobaoItemId: taobaoItemId
+          };
+        } else {
+          ctx.logger.warn(`⚠️ 检测到 copyItem 页面，但无法提取商品ID: ${currentUrl}`);
+          submitResult = {
+            status: 'unknown',
+            message: `页面跳转到 copyItem 页面，请手动检查: ${currentUrl}`
+          };
+        }
       } else {
         // URL不包含成功标识，记录但不抛错
         ctx.logger.warn(`⚠️ 页面URL未包含成功标识: ${currentUrl}`);
