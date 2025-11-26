@@ -144,11 +144,21 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     for (const taobaoCategory of candidateCategories) {
       logger.info(`\n  尝试选择分类: ${taobaoCategory}`);
 
-      // 3.1 点击分类下拉框（当前显示的分类值）
+      // 3.1 点击分类下拉框（当前显示的分类值）——精确到“服装类目”字段
       logger.info('  3.1 点击下拉框');
-      await page.locator('span').filter({
-        hasText: /POLO|T恤|其他|卫衣|场训服|外套|套装|比赛服|短袖|短裙|短裤|紧身衣裤|背心|腰带|袜子|训练服|连衣裙|长袖|长裤|马甲/
-      }).nth(2).click();
+      const categoryLabel = page.getByLabel(/服装类目|类目|分类/);
+      const labelCount = await categoryLabel.count();
+      if (labelCount === 0) {
+        logger.warn('  ⚠️ 未找到“服装类目/类目/分类”字段，跳过分类选择');
+        break; // 找不到字段，直接跳过分类选择，进入下一步骤
+      }
+      const categoryField = categoryLabel.first().locator('..').locator('..').locator('div').first();
+      try {
+        await categoryField.click();
+      } catch (e) {
+        logger.warn(`  ⚠️ 分类下拉点击失败，跳过分类选择: ${e.message}`);
+        break; // 不阻塞后续步骤
+      }
 
       // 3.2 等待下拉框完全展开
       await page.waitForTimeout(800);
@@ -164,11 +174,11 @@ async function fillTitleAndCategory(page, productData, logger = console) {
         searchInput = page.locator('.options-search > .next-input > input');
       } catch (error) {
         // 尝试备用选择器
-        await page.waitForSelector('.next-select input', {
+        await page.waitForSelector('.options-search input', {
           state: 'visible',
           timeout: 5000
         });
-        searchInput = page.locator('.next-select input');
+        searchInput = page.locator('.options-search input');
       }
 
       // 3.4 点击搜索框

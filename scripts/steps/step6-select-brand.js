@@ -148,62 +148,9 @@ const step6 = async (ctx) => {
 
   logger.info('开始选择商品品牌');
 
-  // 检查是否有页面引用
-  if (!ctx.page1) {
-    throw new Error('未找到发布页面，请先执行步骤4');
-  }
-
-  const page = ctx.page1;
-
-  // 从缓存加载商品数据
-  const taskCache = loadTaskCache(productId);
-  if (!taskCache || !taskCache.productData) {
-    throw new Error('未找到商品数据缓存，请先执行步骤0（任务初始化）');
-  }
-
-  const { productData } = taskCache;
-  const brand = productData.brand;
-
-  if (!brand) {
-    throw new Error('商品数据中缺少品牌信息（productData.brand）');
-  }
-
-  logger.info(`商品品牌: ${brand}`);
-
-  // 创建品牌选择器实例
-  const brandSelector = new BrandSelector();
-
-  try {
-    // 选择品牌
-    await brandSelector.selectBrand(page, brand, ctx);
-
-    // 保存截图
-    const screenshotDir = (config && config.screenshotDir) || './screenshots';
-    await brandSelector.takeScreenshot(page, productId, screenshotDir, ctx);
-
-    // 保存选择的品牌到缓存
-    taskCache.selectedBrand = brand;
-    saveTaskCache(productId, taskCache);
-    logger.success('品牌信息已保存到缓存');
-
-  } catch (error) {
-    logger.error(`品牌选择失败: ${error.message}`);
-
-    // 保存错误截图
-    try {
-      const screenshotDir = (config && config.screenshotDir) || './screenshots';
-      fs.mkdirSync(screenshotDir, { recursive: true });
-      const errorScreenshotPath = path.join(screenshotDir, `${productId}_step6_error.png`);
-      await page.screenshot({ path: errorScreenshotPath, fullPage: true });
-      logger.info(`错误截图: ${errorScreenshotPath}`);
-    } catch (screenshotError) {
-      // 忽略截图错误
-    }
-
-    throw error;
-  }
-
-  logger.info('商品品牌选择完成');
+  // 按要求跳过品牌填写，不再操作品牌字段
+  logger.info('按要求跳过品牌填写（不再查找/输入品牌字段）');
+  return;
 }
 
 module.exports = { step6 };
