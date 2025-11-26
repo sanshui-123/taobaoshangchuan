@@ -167,16 +167,27 @@ const step7 = async (ctx) => {
     ctx.logger.info('  使用语义定位: text=货号 + following input');
 
     let skuInput;
+    // 特例：高尔夫球服类目（路径包含“高尔夫球服”）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
+    const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
+    const isGolfBallCategory = categoryPath && categoryPath.includes('高尔夫球服');
 
     // 方法1：通过文本定位（适用于span/div/label等）
     try {
-      skuInput = page.getByText('货号', { exact: false })
-        .locator('xpath=following::input[@type="text" or not(@type)]')
-        .first();
+      if (isGolfBallCategory) {
+        ctx.logger.info('  检测到类目包含高尔夫球服，尝试类目属性区域的货号输入框');
+        skuInput = page.locator('[id^="sell-field-p-"] input, [id^="sell-field-p-"] textarea').first();
+        await skuInput.waitFor({ state: 'attached', timeout: 3000 });
+        ctx.logger.success('  ✅ 类目属性货号定位成功');
+      } else {
+        skuInput = page.getByText('货号', { exact: false })
+          .locator('xpath=following::input[@type="text" or not(@type)]')
+          .first();
 
-      ctx.logger.info('  尝试方法1: getByText + following input');
-      await skuInput.waitFor({ state: 'attached', timeout: 3000 });
-      ctx.logger.success('  ✅ 方法1成功');
+        ctx.logger.info('  尝试方法1: getByText + following input');
+        await skuInput.waitFor({ state: 'attached', timeout: 3000 });
+        ctx.logger.success('  ✅ 方法1成功');
+      }
+
     } catch (e) {
       ctx.logger.info(`  方法1失败: ${e.message}`);
 
@@ -201,11 +212,48 @@ const step7 = async (ctx) => {
     ctx.logger.info('  等待货号输入框可见...');
     await skuInput.waitFor({ state: 'visible', timeout: 8000 });
 
-    const skuEditable = await skuInput.isEditable();
+    let skuEditable = await skuInput.isEditable();
     ctx.logger.info(`  货号输入框可编辑状态: ${skuEditable}`);
 
+    // 如果不可编辑，尝试移除只读并直接写值
     if (!skuEditable) {
-      throw new Error('❌ 货号输入框不可编辑');
+      ctx.logger.warn('  ⚠️ 货号输入框不可编辑，尝试移除只读属性并直接写值');
+      try {
+        await page.evaluate((value, isGolfBall) => {
+          const baseCandidates = [
+            document.querySelector('#sell-field-sku input, #sell-field-sku textarea'),
+            document.querySelector('div:has-text("货号") input'),
+            document.querySelector('input[placeholder*="货号"]'),
+            document.querySelector('input[name*="货号"]')
+          ];
+          const golfCandidates = isGolfBall
+            ? Array.from(document.querySelectorAll('[id^="sell-field-p-"] input, [id^="sell-field-p-"] textarea'))
+            : [];
+          const candidates = [...baseCandidates, ...golfCandidates].filter(Boolean);
+          const input = candidates[0];
+          if (input) {
+            input.removeAttribute('readonly');
+            input.removeAttribute('disabled');
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }, productId, isGolfBallCategory);
+      } catch (e) {
+        ctx.logger.warn(`  ⚠️ 移除只读失败: ${e.message}`);
+      }
+      // 重新检测可编辑性
+      skuEditable = await skuInput.isEditable().catch(() => false);
+    }
+
+    if (!skuEditable) {
+      // 仍不可编辑时，尝试直接验证已有值是否等于商品ID
+      const existingValue = await skuInput.inputValue().catch(() => '');
+      if (existingValue === productId) {
+        ctx.logger.info('  ℹ️ 货号已存在且匹配，跳过填写');
+        return;
+      }
+      throw new Error('❌ 货号输入框不可编辑且无法设置值');
     }
 
     // 填写货号（fill方法会自动清空旧值）
@@ -238,6 +286,12 @@ const step7 = async (ctx) => {
     // ============================================
     // 步骤5：填写"适用性别"（基础信息页签）
     // ============================================
+    // 高尔夫球服类目跳过性别填写
+    if (categoryPath && categoryPath.includes('高尔夫球服')) {
+      ctx.logger.info('  ℹ️ 类目为高尔夫球服，按规则跳过适用性别填写');
+      return;
+    }
+
     ctx.logger.info('\n[步骤5] 填写适用性别（基础信息页签）');
 
     // 从缓存优先读取性别（飞书字段）
