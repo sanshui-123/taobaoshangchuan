@@ -541,9 +541,39 @@ const step5 = async (ctx) => {
     const uploadLocator = workingLocator;
     ctx.logger.info('  ✅ 复用搜索时的定位器（确保在同一iframe上下文）');
 
+    // 排序：文件名降序
+    const applySortDescending = async () => {
+      try {
+        ctx.logger.info('  排序：尝试点击排序下拉并选择“文件名降序”');
+        const triggers = [
+          uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
+          uploadLocator.getByRole('button', { name: /上传时间|文件名/ }).first()
+        ];
+        let trigger = null;
+        for (const t of triggers) {
+          if (t && await t.count()) { trigger = t; break; }
+        }
+        if (trigger) {
+          await trigger.click({ force: true });
+          await page.waitForTimeout(300);
+          const option = uploadLocator.locator('li.next-menu-item:has-text("文件名降序")').first();
+          if (await option.count()) {
+            await option.click({ force: true });
+            ctx.logger.info('  ✅ 已选择“文件名降序”');
+            await page.waitForTimeout(400);
+          } else {
+            ctx.logger.warn('  ⚠️ 未找到“文件名降序”选项，继续默认排序');
+          }
+        } else {
+          ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
+        }
+      } catch (e) {
+        ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
+      }
+    };
+
     try {
-      // 跳过排序，直接选择图片
-      ctx.logger.info('\n  跳过排序，直接选择图片');
+      await applySortDescending();
       await page.waitForTimeout(200);
 
       // 步骤6：检查并选择图片

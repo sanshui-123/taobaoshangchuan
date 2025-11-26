@@ -389,6 +389,35 @@ const step11Detail = async (ctx) => {
 
     ctx.logger.info(`  ✅ 已选择文件夹: ${productId}`);
 
+    // 排序：文件名降序
+    try {
+      ctx.logger.info('  排序：尝试选择“文件名降序”');
+      const sortTriggers = [
+        imageFrame.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名/ }).first(),
+        imageFrame.getByRole('button', { name: /上传时间|文件名/ }).first()
+      ];
+      let sortTrigger = null;
+      for (const t of sortTriggers) {
+        if (t && await t.count()) { sortTrigger = t; break; }
+      }
+      if (sortTrigger) {
+        await sortTrigger.click({ force: true });
+        await page.waitForTimeout(300);
+        const option = imageFrame.locator('li.next-menu-item:has-text("文件名降序")').first();
+        if (await option.count()) {
+          await option.click({ force: true });
+          ctx.logger.info('  ✅ 已选择“文件名降序”');
+          await page.waitForTimeout(400);
+        } else {
+          ctx.logger.warn('  ⚠️ 未找到“文件名降序”选项，继续默认排序');
+        }
+      } else {
+        ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
+      }
+    } catch (e) {
+      ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
+    }
+
     // ==================== 步骤8：从最后一张往前选择图片 ====================
     ctx.logger.info('\n[步骤8] 选择图片（从最后一张往前）');
 
