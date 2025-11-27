@@ -54,20 +54,7 @@ async function checkProductExists(productId) {
       });
     } catch (error) {
       // 页面加载失败，截图并抛出异常
-      const timestamp = Date.now();
-      const screenshotPath = path.resolve(
-        process.cwd(),
-        'screenshots',
-        `check_page_load_fail_${productId}_${timestamp}.png`
-      );
-
-      console.error('❌ 页面加载失败!');
-      console.log('📸 保存截图:', screenshotPath);
-      if (process.env.TAKE_SCREENSHOT === 'true') {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-      }
-
-      throw new Error(`页面加载失败: ${error.message}。截图已保存: ${screenshotPath}`);
+      throw new Error(`页面加载失败: ${error.message}`);
     }
 
     // 等待页面加载
@@ -109,20 +96,7 @@ async function checkProductExists(productId) {
       console.error('❌ 错误详情:', error.message);
       console.error('当前页面URL:', currentUrl);
 
-      // 保存错误截图
-      const timestamp = Date.now();
-      const screenshotPath = path.resolve(
-        process.cwd(),
-        'screenshots',
-        `check_error_${productId}_${timestamp}.png`
-      );
-
-      console.log('📸 保存错误截图:', screenshotPath);
-      if (process.env.TAKE_SCREENSHOT === 'true') {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-      }
-
-      throw new Error(`查重失败: ${error.message}。当前URL: ${currentUrl}。截图已保存: ${screenshotPath}`);
+      throw new Error(`查重失败: ${error.message}。当前URL: ${currentUrl}`);
     }
 
     // 检查是否找到了商品
@@ -210,17 +184,6 @@ async function checkProductExists(productId) {
     if (emptyVisible || rows === 0) {
       console.log(`❌ 商品不存在 (空提示: ${emptyVisible}, 行数: ${rows})`);
 
-      // 截图保存空结果
-      const screenshotPath = path.resolve(
-        process.cwd(),
-        'screenshots',
-        `check_empty_${productId}_${Date.now()}.png`
-      );
-      if (process.env.TAKE_SCREENSHOT === 'true') {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 截图已保存: ${screenshotPath}`);
-      }
-
       return false;
     }
 
@@ -250,52 +213,15 @@ async function checkProductExists(productId) {
     if (productFound) {
       console.log(`✅ 商品 ${productId} 已存在于淘宝`);
 
-      // 截图保存证据
-      const screenshotPath = path.resolve(
-        process.cwd(),
-        'screenshots',
-        `check_exists_${productId}_${Date.now()}.png`
-      );
-      if (process.env.TAKE_SCREENSHOT === 'true') {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 截图已保存: ${screenshotPath}`);
-      }
-
       return true;
     } else {
       console.log(`❌ 商品 ${productId} 不在搜索结果中（但有其他 ${rows} 行数据）`);
-
-      // 截图保存
-      const screenshotPath = path.resolve(
-        process.cwd(),
-        'screenshots',
-        `check_notfound_${productId}_${Date.now()}.png`
-      );
-      if (process.env.TAKE_SCREENSHOT === 'true') {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 截图已保存: ${screenshotPath}`);
-      }
 
       return false;
     }
 
   } catch (error) {
     console.error(`❌ 检查商品时出错: ${error.message}`);
-
-    // 注释掉错误截图，避免页面超时关闭
-    // if (page) {
-    //   try {
-    //     const errorScreenshotPath = path.resolve(
-    //       process.cwd(),
-    //       'screenshots',
-    //       `check_error_${productId}_${Date.now()}.png`
-    //     );
-    //     await page.screenshot({ path: errorScreenshotPath, fullPage: true });
-    //     console.log(`📸 错误截图已保存: ${errorScreenshotPath}`);
-    //   } catch (screenshotError) {
-    //     // 忽略截图错误
-    //   }
-    // }
 
     return false;
   }
