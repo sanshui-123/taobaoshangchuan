@@ -584,11 +584,17 @@ async function scanAndMarkPending(ctx) {
     const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
 
     // 筛选出需要处理的记录（空状态或无效状态）
+    // 🛡️ 重要：保护状态列表，这些状态不会被改为"待检测"
     const validStatuses = [
       process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测',
       process.env.FEISHU_STATUS_PENDING_VALUE || '待上传',
       process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝',
       process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
+      '无需上传',  // 🛡️ 保护状态：均码/FR商品不需要上传
+      '都缺货',    // 🛡️ 保护状态：全部缺货的商品
+      'success',   // 🛡️ 保护状态：历史遗留的成功状态
+      '前三步已更新', // 保护状态：部分更新的商品
+      '前3步已更新',  // 保护状态：部分更新的商品(另一种写法)
       ''
     ];
 
