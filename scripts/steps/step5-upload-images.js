@@ -209,10 +209,17 @@ const step5 = async (ctx) => {
     const page = ctx.page1;
     const productId = ctx.productId;
 
-    // 加载缓存获取商品信息
+  // 加载缓存获取商品信息
   const taskCache = loadTaskCache(productId);
   if (!taskCache.productData || !taskCache.productData.colors) {
     throw new Error('缓存中没有商品颜色信息');
+  }
+
+  // 如果 Step0 已标记前三步完成（skipPhaseA），直接跳过主图上传，避免重复
+  if (taskCache.skipPhaseA) {
+    ctx.logger.info('⚠️ 检测到飞书状态已完成前三步，跳过 Step5 主图上传');
+    updateStepStatus(productId, 5, 'skipped');
+    return;
   }
 
   // 注释掉自动跳过逻辑,允许重新执行 Step5 进行测试

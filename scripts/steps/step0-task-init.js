@@ -287,6 +287,7 @@ async function processRecord(record, ctx, opts = {}) {
     ctx.logger.info(`🔄 检测到状态为"${normalizedStatus || partialValue}"，跳过前置步骤（1-3），继续后续流程`);
     skipPhaseA = true;
     skipPhaseAReason = '已标记前三步已更新/已提交';
+    ctx.skipMaterialUpload = true; // 标记素材上传也跳过
     if (skipPhaseARef) skipPhaseARef.value = true;
     // 标记步骤状态
     updateStepStatus(productId, 1, 'skipped');
@@ -525,6 +526,7 @@ async function processRecord(record, ctx, opts = {}) {
     feishuRecordId: record_id,
     createdAt: new Date().toISOString(),
     skipPhaseA,
+    skipMaterialUpload: ctx.skipMaterialUpload || false,
     stepStatus: {
       0: 'done',
       1: skipPhaseA ? 'skipped' : 'pending',

@@ -217,12 +217,12 @@ async function runSteps(options) {
 
       // Step3（登录验证）完成后，自动调用素材库上传（仅成功一次）
       if (stepId === 3) {
-        if (stepStatus[stepId] === 'skipped' || options.noMaterialUpload) {
+        const currentCache = loadTaskCache(resolveProductId());
+        if (stepStatus[stepId] === 'skipped' || options.noMaterialUpload || sharedContext.skipMaterialUpload || currentCache.skipMaterialUpload) {
           console.log('🚫 已配置跳过素材库上传，忽略 Step3.5');
           return;
         }
         console.log('\n--- [Step 3.5 - 素材库上传] 开始 ---');
-        const currentCache = loadTaskCache(currentProductId);
 
         // 如果已成功上传过素材，跳过重复上传
         if (currentCache.materialUploadDone) {
@@ -337,7 +337,13 @@ async function runSteps(options) {
     Object.assign(ctx, sharedContext);
     await ctx.runStep(stepId);
     // 更新共享上下文，保存当前步骤设置的属性
-    Object.assign(sharedContext, { page: ctx.page, page1: ctx.page1, storagePath: ctx.storagePath });
+    Object.assign(sharedContext, {
+      page: ctx.page,
+      page1: ctx.page1,
+      storagePath: ctx.storagePath,
+      skipPhaseA: ctx.skipPhaseA,
+      skipMaterialUpload: ctx.skipMaterialUpload
+    });
 
     // Step0 执行完成后，提取真实的 productId
     if (stepId === 0 && ctx.productId && ctx.productId !== tempProductId) {
