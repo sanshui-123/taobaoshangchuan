@@ -20,7 +20,30 @@ async function handleCropConfirm(page, ctx) {
     }
 
     if (maskVisible || okBtn) {
-      ctx.logger.info('  检测到裁剪弹窗，尝试点击“确定”');
+      ctx.logger.info('  检测到裁剪弹窗，尝试点击"确定"');
+
+      // 先关闭任何可能遮挡的警告弹窗（如"流量限制"）
+      try {
+        const warningCloseSelectors = [
+          'button[aria-label="Close"]',
+          '.next-message-close',
+          '.next-dialog-close',
+          'button:has-text("×")',
+          '[class*="close"]:has-text("×")'
+        ];
+        for (const sel of warningCloseSelectors) {
+          const closeBtn = page.locator(sel).first();
+          if (await closeBtn.isVisible({ timeout: 300 }).catch(() => false)) {
+            await closeBtn.click({ force: true }).catch(() => {});
+            ctx.logger.info('  ✅ 已关闭警告遮挡层');
+            await page.waitForTimeout(300);
+            break;
+          }
+        }
+      } catch (e) {
+        // 忽略
+      }
+
       if (okBtn) {
         await okBtn.click({ force: true, timeout: 3000 }).catch(() => {});
       }
@@ -597,21 +620,45 @@ const step11Detail = async (ctx) => {
     // ==================== 步骤9：点击素材库弹窗的"确定（N）"按钮 ====================
     ctx.logger.info('\n[步骤9] 点击素材库弹窗确定按钮');
 
-    // 素材库弹窗的确定按钮：必须带计数
+    // 素材库弹窗的确定按钮 - 多种选择器策略
+    // 策略1: 带计数的确定按钮（旧版）
     const confirmWithCount = imageFrame.locator('button:has(.next-btn-count):has-text("确定")');
+
+    // 策略2: 主按钮样式的确定按钮（新版，基于实际DOM）
+    const confirmPrimaryBtn = imageFrame.locator('button.next-btn-primary:has-text("确定")');
+
+    // 策略3: 带括号数字的确定按钮
     const fallbackWithBracket = imageFrame.locator('button').filter({
       hasText: /\(\s*\d+\s*\)/,
       hasText: /确定|確定/
     });
 
-    let imageLibraryConfirmBtn = confirmWithCount;
-    const primaryCount = await confirmWithCount.count();
-    const fallbackCount = await fallbackWithBracket.count();
-    ctx.logger.info(`  🔍 确定按钮匹配: primary=${primaryCount}, fallback=${fallbackCount}`);
+    // 策略4: 任何包含"确定"的按钮（最后兜底）
+    const fallbackAnyConfirm = imageFrame.locator('button').filter({
+      hasText: /确定|確定/
+    });
 
-    if (primaryCount === 0 && fallbackCount > 0) {
+    let imageLibraryConfirmBtn = null;
+    const countStrategy1 = await confirmWithCount.count();
+    const countStrategy2 = await confirmPrimaryBtn.count();
+    const countStrategy3 = await fallbackWithBracket.count();
+    const countStrategy4 = await fallbackAnyConfirm.count();
+    ctx.logger.info(`  🔍 确定按钮匹配: strategy1=${countStrategy1}, strategy2=${countStrategy2}, strategy3=${countStrategy3}, strategy4=${countStrategy4}`);
+
+    if (countStrategy1 > 0) {
+      imageLibraryConfirmBtn = confirmWithCount;
+      ctx.logger.info('  ℹ️ 使用策略1（带计数元素）');
+    } else if (countStrategy2 > 0) {
+      imageLibraryConfirmBtn = confirmPrimaryBtn;
+      ctx.logger.info('  ℹ️ 使用策略2（主按钮样式 .next-btn-primary）');
+    } else if (countStrategy3 > 0) {
       imageLibraryConfirmBtn = fallbackWithBracket;
-      ctx.logger.info('  ℹ️ 使用括号数字匹配的兜底选择器');
+      ctx.logger.info('  ℹ️ 使用策略3（括号数字匹配）');
+    } else if (countStrategy4 > 0) {
+      imageLibraryConfirmBtn = fallbackAnyConfirm;
+      ctx.logger.info('  ℹ️ 使用策略4（通用确定按钮）');
+    } else {
+      throw new Error('未找到任何确定按钮选择器');
     }
 
     await imageLibraryConfirmBtn.first().waitFor({ state: 'visible', timeout: 8000 });

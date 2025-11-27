@@ -46,6 +46,29 @@ async function handleCropConfirm(page, ctx) {
       }
 
       ctx.logger.info(`  检测到裁剪弹窗，尝试点击"确定"（第${attempt + 1}次）`);
+
+      // 先关闭任何可能遮挡的警告弹窗（如"流量限制"）
+      try {
+        const warningCloseSelectors = [
+          'button[aria-label="Close"]',
+          '.next-message-close',
+          '.next-dialog-close',
+          'button:has-text("×")',
+          '[class*="close"]:has-text("×")'
+        ];
+        for (const sel of warningCloseSelectors) {
+          const closeBtn = page.locator(sel).first();
+          if (await closeBtn.isVisible({ timeout: 300 }).catch(() => false)) {
+            await closeBtn.click({ force: true }).catch(() => {});
+            ctx.logger.info('  ✅ 已关闭警告遮挡层');
+            await page.waitForTimeout(300);
+            break;
+          }
+        }
+      } catch (e) {
+        // 忽略
+      }
+
       let clicked = false;
       try {
         await okBtn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
@@ -817,22 +840,46 @@ const step5 = async (ctx) => {
       ctx.logger.info('\n[步骤6.5] 点击素材库弹窗确定按钮');
 
       try {
-        // 素材库弹窗的确定按钮：必须带计数 (参考 step11 实现)
+        // 素材库弹窗的确定按钮 - 多种选择器策略
+        // 策略1: 带计数的确定按钮（旧版）
         const confirmWithCount = uploadLocator.locator('button:has(.next-btn-count):has-text("确定")');
+
+        // 策略2: 主按钮样式的确定按钮（新版，基于实际DOM）
+        const confirmPrimaryBtn = uploadLocator.locator('button.next-btn-primary:has-text("确定")');
+
+        // 策略3: 带括号数字的确定按钮
         const fallbackWithBracket = uploadLocator.locator('button').filter({
           hasText: /\(\s*\d+\s*\)/
         }).filter({
           hasText: /确定|確定/
         });
 
-        let imageLibraryConfirmBtn = confirmWithCount;
-        const primaryCount = await confirmWithCount.count();
-        const fallbackCount = await fallbackWithBracket.count();
-        ctx.logger.info(`  🔍 确定按钮匹配: primary=${primaryCount}, fallback=${fallbackCount}`);
+        // 策略4: 任何包含"确定"的按钮（最后兜底）
+        const fallbackAnyConfirm = uploadLocator.locator('button').filter({
+          hasText: /确定|確定/
+        });
 
-        if (primaryCount === 0 && fallbackCount > 0) {
+        let imageLibraryConfirmBtn = null;
+        const countStrategy1 = await confirmWithCount.count();
+        const countStrategy2 = await confirmPrimaryBtn.count();
+        const countStrategy3 = await fallbackWithBracket.count();
+        const countStrategy4 = await fallbackAnyConfirm.count();
+        ctx.logger.info(`  🔍 确定按钮匹配: strategy1=${countStrategy1}, strategy2=${countStrategy2}, strategy3=${countStrategy3}, strategy4=${countStrategy4}`);
+
+        if (countStrategy1 > 0) {
+          imageLibraryConfirmBtn = confirmWithCount;
+          ctx.logger.info('  ℹ️ 使用策略1（带计数元素）');
+        } else if (countStrategy2 > 0) {
+          imageLibraryConfirmBtn = confirmPrimaryBtn;
+          ctx.logger.info('  ℹ️ 使用策略2（主按钮样式 .next-btn-primary）');
+        } else if (countStrategy3 > 0) {
           imageLibraryConfirmBtn = fallbackWithBracket;
-          ctx.logger.info('  ℹ️ 使用括号数字匹配的兜底选择器');
+          ctx.logger.info('  ℹ️ 使用策略3（括号数字匹配）');
+        } else if (countStrategy4 > 0) {
+          imageLibraryConfirmBtn = fallbackAnyConfirm;
+          ctx.logger.info('  ℹ️ 使用策略4（通用确定按钮）');
+        } else {
+          throw new Error('未找到任何确定按钮选择器');
         }
 
         await imageLibraryConfirmBtn.first().waitFor({ state: 'visible', timeout: 8000 });
@@ -844,14 +891,33 @@ const step5 = async (ctx) => {
           throw new Error('素材库确定按钮不可用');
         }
 
-        await imageLibraryConfirmBtn.first().click({ force: true });
+        // 尝试 Playwright 点击
+        let clickSuccess = false;
+        try {
+          await imageLibraryConfirmBtn.first().click({ force: true, timeout: 3000 });
+          clickSuccess = true;
+        } catch (e) {
+          ctx.logger.warn(`  ⚠️ Playwright 点击失败: ${e.message}`);
+        }
+
+        // 如果 Playwright 点击失败，尝试 JavaScript 点击
+        if (!clickSuccess) {
+          ctx.logger.info('  🔄 尝试使用 JavaScript 点击...');
+          await imageLibraryConfirmBtn.first().evaluate(btn => btn.click());
+          clickSuccess = true;
+          ctx.logger.info('  ✅ JavaScript 点击完成');
+        }
 
         // 若首次点击后按钮仍存在，再尝试一次点击（防止首次未生效）
         try {
           await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 3000 });
         } catch (e) {
           ctx.logger.warn('  ⚠️ 首次点击后按钮仍在，重试一次');
-          await imageLibraryConfirmBtn.first().click({ force: true });
+          try {
+            await imageLibraryConfirmBtn.first().click({ force: true });
+          } catch (e2) {
+            await imageLibraryConfirmBtn.first().evaluate(btn => btn.click());
+          }
         }
 
         // 再等弹窗关闭或按钮消失，最多5秒
@@ -1097,7 +1163,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   ctx.logger.info(`  总图片数: ${imageCount}`);
 
   // ========== 品牌特例：倒序取5张 ==========
-  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES', '万星威Munsingwear', 'Munsingwear'];
+  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES', '万星威Munsingwear', 'Munsingwear', 'TaylorMade泰勒梅'];
   if (specialBrands.includes(brand)) {
     ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 
@@ -1112,11 +1178,11 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     ctx.logger.info(`  📋 计划选择: ${selectCount} 张图片（从最后往前）\n`);
 
     // 从最后一张往前选择
-    for (let i = 0; i < selectCount; i++) {
-      const targetIndex = cardHandles.length - 1 - i;  // 倒数第(i+1)张
-      ctx.logger.info(`第${i+1}张 → 索引${targetIndex} (倒数第${i+1}张)`);
+      for (let i = 0; i < selectCount; i++) {
+        const targetIndex = cardHandles.length - 1 - i;  // 倒数第(i+1)张
+        ctx.logger.info(`第${i+1}张 → 索引${targetIndex} (倒数第${i+1}张)`);
 
-      try {
+        try {
         const cardHandle = cardHandles[targetIndex];
 
         if (!cardHandle) {
@@ -1149,6 +1215,11 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
 
       } catch (error) {
         ctx.logger.warn(`  ❌ 第${i+1}张 → 失败: ${error.message}`);
+      }
+
+      // 首张点击后额外停顿，避免过快触发弹窗未就绪
+      if (i === 0) {
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
 
       // 点击间隔
@@ -1294,6 +1365,11 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     } catch (error) {
       ctx.logger.warn(`  ❌ ${rule.name} → 失败: ${error.message}`);
       // 继续尝试剩余索引
+    }
+
+    // 首张点击后额外停顿，避免过快触发弹窗未就绪
+    if (i === 0) {
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
 
     // 点击间隔，避免操作过快
