@@ -94,12 +94,46 @@ const step7 = async (ctx) => {
     // ============================================
     ctx.logger.info('\n[步骤2] 填写货号');
 
+    // 预处理：检查并展开"展开补充更多信息"（高尔夫服装模板可能隐藏货号字段）
+    try {
+      const expandButtonSelectors = [
+        'span.btn-text:has-text("展开补充更多信息")',
+        'button:has-text("展开补充更多信息")',
+        'a:has-text("展开补充更多信息")',
+        '.next-btn:has-text("展开补充更多信息")',
+        '[class*="expand"]:has-text("展开补充更多信息")',
+        'span:has-text("展开补充更多信息")'
+      ];
+
+      let expandButton = null;
+      for (const selector of expandButtonSelectors) {
+        const btn = page.locator(selector).first();
+        const isVisible = await btn.isVisible({ timeout: 500 }).catch(() => false);
+        if (isVisible) {
+          expandButton = btn;
+          ctx.logger.info(`  🔍 检测到"展开补充更多信息"按钮: ${selector}`);
+          break;
+        }
+      }
+
+      if (expandButton) {
+        ctx.logger.info('  📂 点击"展开补充更多信息"以显示隐藏字段...');
+        await expandButton.click({ force: true });
+        await page.waitForTimeout(800); // 等待展开动画完成
+        ctx.logger.success('  ✅ 已展开补充信息区域');
+      } else {
+        ctx.logger.info('  ℹ️ 未检测到需要展开的按钮，直接查找货号字段');
+      }
+    } catch (expandError) {
+      ctx.logger.warn(`  ⚠️ 展开操作失败（继续尝试定位货号）: ${expandError.message}`);
+    }
+
     // 使用语义定位：通过文本关联到输入框（最佳实践）
     // 不限定必须是label标签，可以是span/div等任何包含"货号"文本的元素
     ctx.logger.info('  使用语义定位: text=货号 + following input');
 
     let skuInput;
-    // 特例：高尔夫球服类目（路径包含“高尔夫球服”）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
+    // 特例：高尔夫球服类目（路径包含"高尔夫球服"）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
     const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
     const isGolfBallCategory = categoryPath && categoryPath.includes('高尔夫球服');
 
@@ -151,7 +185,7 @@ const step7 = async (ctx) => {
     if (!skuEditable) {
       ctx.logger.warn('  ⚠️ 货号输入框不可编辑，尝试移除只读属性并直接写值');
       try {
-        await page.evaluate((value, isGolfBall) => {
+        await page.evaluate(({ value, isGolfBall }) => {
           const baseCandidates = [
             document.querySelector('#sell-field-sku input, #sell-field-sku textarea'),
             document.querySelector('div:has-text("货号") input'),
@@ -170,7 +204,7 @@ const step7 = async (ctx) => {
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
           }
-        }, productId, isGolfBallCategory);
+        }, { value: productId, isGolfBall: isGolfBallCategory });
       } catch (e) {
         ctx.logger.warn(`  ⚠️ 移除只读失败: ${e.message}`);
       }
