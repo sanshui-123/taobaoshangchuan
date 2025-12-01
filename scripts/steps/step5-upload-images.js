@@ -216,11 +216,7 @@ const step5 = async (ctx) => {
   }
 
   // 如果 Step0 已标记前三步完成（skipPhaseA），直接跳过主图上传，避免重复
-  if (taskCache.skipPhaseA) {
-    ctx.logger.info('⚠️ 检测到飞书状态已完成前三步，跳过 Step5 主图上传');
-    updateStepStatus(productId, 5, 'skipped');
-    return;
-  }
+  // 如果希望强制重跑 Step5，即使标记了 skipPhaseA，也继续执行
 
   // 注释掉自动跳过逻辑,允许重新执行 Step5 进行测试
   // 如果之前已经完成过 Step5，则直接跳过，避免重复上传
@@ -1169,9 +1165,12 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   ctx.logger.info(`  颜色数: ${colorCount}`);
   ctx.logger.info(`  总图片数: ${imageCount}`);
 
+  const brandKey = (brand || '').trim().toLowerCase();
+
   // ========== 品牌特例：倒序取5张 ==========
-  const specialBrands = ['Le Coq公鸡乐卡克', 'PEARLY GATES', '万星威Munsingwear', 'Munsingwear', 'TaylorMade泰勒梅'];
-  if (specialBrands.includes(brand)) {
+  const specialBrands = ['le coq公鸡乐卡克', 'pearly gates', '万星威munsingwear', 'munsingwear', 'taylormade泰勒梅'];
+  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport');
+  if (isSpecialBrand) {
     ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 
     // 缓存所有图片元素

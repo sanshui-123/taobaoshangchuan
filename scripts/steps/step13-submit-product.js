@@ -142,9 +142,15 @@ const step13 = async (ctx) => {
 
     let submitButton = null;
     for (const selector of submitSelectors) {
-      submitButton = await page.$(selector);
-      if (submitButton) {
-        ctx.logger.info(`找到提交按钮: ${selector}`);
+      const candidate = await page.$(selector);
+      if (candidate) {
+        const text = (await candidate.textContent() || '').trim();
+        if (/返回旧版/.test(text) || /^返回/.test(text)) {
+          ctx.logger.info(`跳过疑似“返回旧版”按钮: ${selector} -> "${text}"`);
+          continue;
+        }
+        submitButton = candidate;
+        ctx.logger.info(`找到提交按钮: ${selector} -> "${text}"`);
         break;
       }
     }
@@ -349,8 +355,13 @@ const step13 = async (ctx) => {
                 // 增加超时时间
                 const isVisible = await btn.isVisible({ timeout: 5000 });
                 if (isVisible) {
+                  const text = (await btn.textContent() || '').trim();
+                  if (/返回旧版/.test(text) || /^返回/.test(text)) {
+                    ctx.logger.info(`  ⏭️ 跳过疑似“返回旧版”按钮: ${selector} -> "${text}"`);
+                    continue;
+                  }
                   freshSubmit = btn;
-                  ctx.logger.info(`  ✅ 重新找到提交按钮: ${selector}`);
+                  ctx.logger.info(`  ✅ 重新找到提交按钮: ${selector} -> "${text}"`);
                   break;
                 }
               } catch (e) {

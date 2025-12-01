@@ -25,6 +25,9 @@ const step7 = async (ctx) => {
 
     const page = ctx.page1;
     const productId = ctx.productId;
+    const taskCache = loadTaskCache(productId);
+    const brandKey = ((taskCache?.productData?.brand) || '').trim().toLowerCase();
+    const isMoveSportBrand = brandKey.includes('movesport');
 
     ctx.logger.info(`商品ID: ${productId}`);
 
@@ -135,7 +138,7 @@ const step7 = async (ctx) => {
     let skuInput;
     // 特例：高尔夫球服类目（路径包含"高尔夫球服"）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
     const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
-    const isGolfBallCategory = categoryPath && categoryPath.includes('高尔夫球服');
+    const isGolfBallCategory = (categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand;
 
     // 方法1：通过文本定位（适用于span/div/label等）
     try {
@@ -252,16 +255,16 @@ const step7 = async (ctx) => {
     // ============================================
     // 步骤3：填写"适用性别"
     // ============================================
-    // 高尔夫球服类目跳过性别填写
-    if (categoryPath && categoryPath.includes('高尔夫球服')) {
-      ctx.logger.info('  ℹ️ 类目为高尔夫球服，按规则跳过适用性别填写');
+    // 高尔夫球服/MoveSport 品牌跳过性别填写
+    if ((categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand) {
+      ctx.logger.info('  ℹ️ 类目为高尔夫球服或 MoveSport 品牌，按规则跳过适用性别填写');
       return;
     }
 
     ctx.logger.info('\n[步骤3] 填写适用性别');
 
     // 从缓存优先读取性别（飞书字段）
-    const taskCache = loadTaskCache(productId);
+    // taskCache 已在函数开头（第28行）声明，直接使用
     let targetGender = normalizeGender(
       taskCache?.productData?.gender ||
       taskCache?.productData?.targetAudience
