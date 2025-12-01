@@ -559,14 +559,17 @@ async function step4(ctx) {
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
+      const maleMoveSport = process.env.TEMPLATE_ITEM_ID_MOVESPORT || '889107331337';
       // 女店配置
       const femaleDefault = process.env.TEMPLATE_ITEM_ID_FEMALE || '963409414097';
       const femalePearly = process.env.TEMPLATE_ITEM_ID_FEMALE_PEARLY_GATES || '962546682844';
       const femaleMunsing = process.env.TEMPLATE_ITEM_ID_FEMALE_MUNSINGWEAR || '895577432419';
+      const femaleLeCoq = process.env.TEMPLATE_ITEM_ID_FEMALE_LECOQ || '927659846575';
 
       if (store === 'female') {
         if (brandKey === 'pearly gates') return femalePearly;
         if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
+        if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
         return femaleDefault;
       }
 
@@ -574,6 +577,7 @@ async function step4(ctx) {
       if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
       if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return maleLeCoq;
+      if (brandKey.includes('movesport')) return maleMoveSport;
       return maleDefault;
     };
 
