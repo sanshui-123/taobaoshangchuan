@@ -67,6 +67,7 @@ const step10 = async (ctx) => {
       'input[name="unifiedPrice"]',
       '.unified-price input',
       '#unifiedPrice',
+      '#skuPrice',
       '.price-input'
     ];
 
