@@ -1169,7 +1169,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
 
   // ========== 品牌特例：倒序取5张 ==========
   const specialBrands = ['le coq公鸡乐卡克', 'pearly gates', '万星威munsingwear', 'munsingwear', 'taylormade泰勒梅'];
-  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport');
+  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport') || (brandKey.includes('master') && brandKey.includes('bunny'));
   if (isSpecialBrand) {
     ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 

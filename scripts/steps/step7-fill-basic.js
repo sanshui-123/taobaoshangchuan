@@ -28,6 +28,7 @@ const step7 = async (ctx) => {
     const taskCache = loadTaskCache(productId);
     const brandKey = ((taskCache?.productData?.brand) || '').trim().toLowerCase();
     const isMoveSportBrand = brandKey.includes('movesport');
+    const isMasterBunnyBrand = brandKey.includes('master') && brandKey.includes('bunny');
 
     ctx.logger.info(`商品ID: ${productId}`);
 
@@ -138,7 +139,7 @@ const step7 = async (ctx) => {
     let skuInput;
     // 特例：高尔夫球服类目（路径包含"高尔夫球服"）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
     const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
-    const isGolfBallCategory = (categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand;
+    const isGolfBallCategory = (categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand || isMasterBunnyBrand;
 
     // 方法1：通过文本定位（适用于span/div/label等）
     try {
@@ -255,9 +256,9 @@ const step7 = async (ctx) => {
     // ============================================
     // 步骤3：填写"适用性别"
     // ============================================
-    // 高尔夫球服/MoveSport 品牌跳过性别填写
-    if ((categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand) {
-      ctx.logger.info('  ℹ️ 类目为高尔夫球服或 MoveSport 品牌，按规则跳过适用性别填写');
+    // 高尔夫球服/MoveSport/Master Bunny 品牌跳过性别填写
+    if ((categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand || isMasterBunnyBrand) {
+      ctx.logger.info('  ℹ️ 类目为高尔夫球服或 MoveSport/Master Bunny 品牌，按规则跳过适用性别填写');
       return;
     }
 
