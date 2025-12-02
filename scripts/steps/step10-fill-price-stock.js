@@ -155,6 +155,17 @@ const step10 = async (ctx) => {
         for (const sel of priceSelectors) {
           const candidate = row.locator(sel).first();
           if (await candidate.isVisible({ timeout: 300 }).catch(() => false)) {
+            const ok = await candidate.evaluate((el) => {
+              const id = (el.getAttribute('id') || '').toLowerCase();
+              const name = (el.getAttribute('name') || '').toLowerCase();
+              const inBatch = el.closest('.batch-select') || el.closest('.batch-fill') || el.closest('.batch');
+              // 排除批量/统一输入区域
+              if (inBatch) return false;
+              // 行内价格通常 id/name 含 skuPrice，若不是也允许，但批量区已排除
+              if (id === 'skuprice' || name === 'skuprice') return true;
+              return true;
+            }).catch(() => false);
+            if (!ok) continue;
             priceInput = candidate;
             break;
           }
@@ -179,7 +190,30 @@ const step10 = async (ctx) => {
         }
 
         // 查找库存输入框
-        const stockInput = await row.$('input[placeholder*="库存"], input[name*="stock"]');
+        let stockInput = null;
+        const stockSelectors = [
+          'input[id*="skuStock"]',
+          'input[name*="skuStock"]',
+          'input[placeholder*="库存"]',
+          'input[name*="stock"]'
+        ];
+        for (const sel of stockSelectors) {
+          const candidate = row.locator(sel).first();
+          if (await candidate.isVisible({ timeout: 300 }).catch(() => false)) {
+            const ok = await candidate.evaluate((el) => {
+              const id = (el.getAttribute('id') || '').toLowerCase();
+              const name = (el.getAttribute('name') || '').toLowerCase();
+              const inBatch = el.closest('.batch-select') || el.closest('.batch-fill') || el.closest('.batch');
+              if (inBatch) return false;
+              if (id === 'skustock' || name === 'skustock') return true;
+              return true;
+            }).catch(() => false);
+            if (!ok) continue;
+            stockInput = candidate;
+            break;
+          }
+        }
+
         if (stockInput && !unifiedStockInput) {
           // 计算SKU库存（可添加库存策略）
           let skuStock = baseStock;

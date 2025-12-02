@@ -53,40 +53,111 @@ const step9PriceStock = async (ctx) => {
       ctx.logger.info('  ℹ️ 价格库存配置区域已展开或无需点击');
     }
 
-    // ==================== 第二部分：填写价格 ====================
-    ctx.logger.info('\n[步骤2] 填写价格');
+    // ==================== 第二部分：矩阵模式逐行填写价格/数量 ====================
+    ctx.logger.info('\n[步骤2] 填写价格/数量（优先逐行）');
 
-    const priceInput = page.getByRole('textbox', { name: '价格' });
-    await priceInput.click();
-    await page.waitForTimeout(300);
-    await priceInput.clear();
-    await priceInput.fill(String(basePrice));
-    await page.waitForTimeout(500);
+    const skuTable = await page.$('.sku-table, table.sku-matrix');
+    if (skuTable) {
+      ctx.logger.info('  检测到 SKU 矩阵，逐行填写价格与数量');
+      const rows = await skuTable.$$('[data-sku-id], tr.sku-row');
+      ctx.logger.info(`  共 ${rows.length} 行`);
 
-    ctx.logger.info(`  ✅ 价格已填写: ${basePrice}`);
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
 
-    // ==================== 第三部分：填写数量 ====================
-    ctx.logger.info('\n[步骤3] 填写数量');
+        // 行内价格
+        const priceSelectors = [
+          'input[id*="skuPrice"]',
+          'input[name*="skuPrice"]',
+          'input[placeholder*="价格"]',
+          'input[name*="price"]'
+        ];
+        let priceInput = null;
+        for (const sel of priceSelectors) {
+          const cand = row.locator(sel).first();
+          if (await cand.isVisible({ timeout: 300 }).catch(() => false)) {
+            const ok = await cand.evaluate((el) => {
+              const inBatch = el.closest('.batch-select') || el.closest('.batch-fill') || el.closest('.batch');
+              return !inBatch;
+            }).catch(() => false);
+            if (!ok) continue;
+            priceInput = cand;
+            break;
+          }
+        }
+        if (priceInput) {
+          await priceInput.scrollIntoViewIfNeeded().catch(() => {});
+          await priceInput.click();
+          await page.keyboard.press('Control+a');
+          await priceInput.fill(String(basePrice));
+        } else {
+          ctx.logger.warn(`  ⚠️ 第${i + 1}行未找到价格输入框`);
+        }
 
-    const quantityInput = page.getByRole('textbox', { name: '数量' });
-    await quantityInput.click();
-    await page.waitForTimeout(300);
-    await quantityInput.clear();
-    await quantityInput.fill(String(baseStock));
-    await page.waitForTimeout(500);
+        // 行内数量
+        const stockSelectors = [
+          'input[id*="skuStock"]',
+          'input[name*="skuStock"]',
+          'input[placeholder*="库存"]',
+          'input[name*="stock"]',
+          'input[placeholder*="数量"]'
+        ];
+        let stockInput = null;
+        for (const sel of stockSelectors) {
+          const cand = row.locator(sel).first();
+          if (await cand.isVisible({ timeout: 300 }).catch(() => false)) {
+            const ok = await cand.evaluate((el) => {
+              const inBatch = el.closest('.batch-select') || el.closest('.batch-fill') || el.closest('.batch');
+              return !inBatch;
+            }).catch(() => false);
+            if (!ok) continue;
+            stockInput = cand;
+            break;
+          }
+        }
+        if (stockInput) {
+          await stockInput.scrollIntoViewIfNeeded().catch(() => {});
+          await stockInput.click();
+          await page.keyboard.press('Control+a');
+          await stockInput.fill(String(baseStock));
+        } else {
+          ctx.logger.warn(`  ⚠️ 第${i + 1}行未找到数量输入框`);
+        }
 
-    ctx.logger.info(`  ✅ 数量已填写: ${baseStock}`);
+        await page.waitForTimeout(150);
+      }
 
-    // ==================== 第四部分：批量填写 ====================
-    ctx.logger.info('\n[步骤4] 点击批量填写');
+      ctx.logger.info('  ✅ 已逐行填写价格和数量');
+    } else {
+      // ==================== 无矩阵时：使用批量栏 ====================
+      ctx.logger.info('  未检测到 SKU 矩阵，使用批量栏填写');
+      const priceInput = page.getByRole('textbox', { name: '价格' });
+      await priceInput.click();
+      await page.waitForTimeout(300);
+      await priceInput.clear();
+      await priceInput.fill(String(basePrice));
+      await page.waitForTimeout(500);
+      ctx.logger.info(`  ✅ 价格已填写: ${basePrice}`);
 
-    await page.getByRole('button', { name: '批量填写' }).click();
-    await page.waitForTimeout(1000);
+      const quantityInput = page.getByRole('textbox', { name: '数量' });
+      await quantityInput.click();
+      await page.waitForTimeout(300);
+      await quantityInput.clear();
+      await quantityInput.fill(String(baseStock));
+      await page.waitForTimeout(500);
+      ctx.logger.info(`  ✅ 数量已填写: ${baseStock}`);
 
-    ctx.logger.info('  ✅ 价格和数量已批量应用到所有SKU');
+      try {
+        await page.getByRole('button', { name: '批量填写' }).click();
+        await page.waitForTimeout(800);
+        ctx.logger.info('  ✅ 价格和数量已批量应用到所有SKU');
+      } catch (e) {
+        ctx.logger.warn(`  ⚠️ 批量填写按钮点击失败: ${e.message}`);
+      }
+    }
 
-    // ==================== 第五部分：填写商家编码 ====================
-    ctx.logger.info('\n[步骤5] 填写商家编码');
+    // ==================== 第三部分：填写商家编码 ====================
+    ctx.logger.info('\n[步骤3] 填写商家编码');
 
     // 5.1 点击商家编码区域
     try {

@@ -127,32 +127,38 @@ const step13 = async (ctx) => {
     // 步骤2：执行提交
     ctx.logger.info('\n[步骤2] 执行商品提交');
 
-    // 查找提交按钮
+    // 查找提交按钮（严格过滤“返回/旧版”）
     const submitSelectors = [
-      'button:has-text("提交宝贝信息")',  // 优先查找"提交宝贝信息"按钮
+      'button.next-btn-primary:has-text("提交宝贝信息")',
       'button.next-btn.next-btn-primary.next-large:has-text("提交宝贝信息")',
-      'button:has-text("立即发布")',
-      'button:has-text("发布商品")',
-      'button:has-text("提交")',
+      'button.next-btn-primary:has-text("立即发布")',
+      'button.next-btn-primary:has-text("发布商品")',
+      'button.next-btn-primary:has-text("提交")',
+      'button[type="submit"]',
       '.submit-btn',
       '.publish-btn',
-      'button[type="submit"]',
       '.btn-publish'
     ];
+
+    const isSubmitText = (text) => {
+      const t = (text || '').trim();
+      if (!t) return false;
+      if (/返回/.test(t) || /旧版/.test(t)) return false;
+      return /提交宝贝信息|立即发布|发布商品|提交|发布/i.test(t);
+    };
 
     let submitButton = null;
     for (const selector of submitSelectors) {
       const candidate = await page.$(selector);
-      if (candidate) {
-        const text = (await candidate.textContent() || '').trim();
-        if (/返回旧版/.test(text) || /^返回/.test(text)) {
-          ctx.logger.info(`跳过疑似“返回旧版”按钮: ${selector} -> "${text}"`);
-          continue;
-        }
-        submitButton = candidate;
-        ctx.logger.info(`找到提交按钮: ${selector} -> "${text}"`);
-        break;
+      if (!candidate) continue;
+      const text = (await candidate.textContent() || '').trim();
+      if (!isSubmitText(text)) {
+        ctx.logger.info(`跳过非提交按钮: ${selector} -> "${text}"`);
+        continue;
       }
+      submitButton = candidate;
+      ctx.logger.info(`找到提交按钮: ${selector} -> "${text}"`);
+      break;
     }
 
     if (!submitButton) {
