@@ -61,13 +61,12 @@ const step10 = async (ctx) => {
     // 步骤2：填写统一价格和库存
     ctx.logger.info('\n[步骤2] 填写统一价格和库存');
 
-    // 查找统一价格输入框
+    // 查找统一价格输入框（矩阵模式下会忽略，逐行填写）
     const unifiedPriceSelectors = [
       'input[placeholder*="统一价格"]',
       'input[name="unifiedPrice"]',
       '.unified-price input',
       '#unifiedPrice',
-      '#skuPrice',
       '.price-input'
     ];
 
@@ -124,6 +123,9 @@ const step10 = async (ctx) => {
     // 查找SKU表格
     const skuTable = await page.$('.sku-table, table.sku-matrix');
     if (skuTable) {
+      // 矩阵模式下不使用“统一价格”输入，逐行填写，避免误将首行价格当作统一价格
+      unifiedPriceInput = null;
+
       // 矩阵模式：逐个填写SKU价格和库存
       ctx.logger.info('矩阵模式：配置SKU级别价格和库存');
 
@@ -142,9 +144,23 @@ const step10 = async (ctx) => {
 
         ctx.logger.info(`  配置SKU: ${skuInfo.color || 'N/A'} / ${skuInfo.size || 'N/A'}`);
 
-        // 查找价格输入框
-        const priceInput = await row.$('input[placeholder*="价格"], input[name*="price"]');
-        if (priceInput && !unifiedPriceInput) {
+        // 查找价格输入框（限定在当前行，优先 skuPrice）
+        let priceInput = null;
+        const priceSelectors = [
+          'input[id*="skuPrice"]',
+          'input[name*="skuPrice"]',
+          'input[placeholder*="价格"]',
+          'input[name*="price"]'
+        ];
+        for (const sel of priceSelectors) {
+          const candidate = row.locator(sel).first();
+          if (await candidate.isVisible({ timeout: 300 }).catch(() => false)) {
+            priceInput = candidate;
+            break;
+          }
+        }
+
+        if (priceInput) {
           // 计算SKU价格（可添加溢价逻辑）
           let skuPrice = basePrice;
 
@@ -153,10 +169,13 @@ const step10 = async (ctx) => {
             skuPrice += 10 * (['XL', '2XL', '3XL', '4XL'].indexOf(skuInfo.size) + 1);
           }
 
+          await priceInput.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
           await priceInput.click();
           await page.keyboard.press('Control+a');
           await priceInput.fill(String(skuPrice));
           ctx.logger.info(`    ✓ 价格: ¥${skuPrice}`);
+        } else {
+          ctx.logger.warn('    ⚠️ 未找到当前行的价格输入框');
         }
 
         // 查找库存输入框

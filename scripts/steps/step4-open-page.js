@@ -651,11 +651,13 @@ const step4 = async (ctx) => {
       const femalePearly = process.env.TEMPLATE_ITEM_ID_FEMALE_PEARLY_GATES || '962546682844';
       const femaleMunsing = process.env.TEMPLATE_ITEM_ID_FEMALE_MUNSINGWEAR || '895577432419';
       const femaleLeCoq = process.env.TEMPLATE_ITEM_ID_FEMALE_LECOQ || '927659846575';
+      const femaleMoveSport = process.env.TEMPLATE_ITEM_ID_FEMALE_MOVESPORT || '998736086966';
 
       if (store === 'female') {
         if (brandKey === 'pearly gates') return femalePearly;
         if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
         if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
+        if (brandKey.includes('movesport')) return femaleMoveSport;
         return femaleDefault;
       }
 
