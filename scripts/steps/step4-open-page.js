@@ -658,17 +658,17 @@ const step4 = async (ctx) => {
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
 
       if (store === 'female') {
-        if (brandKey === 'pearly gates') return femalePearly;
-        if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
-        if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
-        if (brandKey.includes('movesport')) return femaleMoveSport;
-        if (brandKey.includes('jack') && brandKey.includes('bunny')) return femaleJackBunny;
-        if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
-        return femaleDefault;
-      }
+      if (brandKey === 'pearly gates') return femalePearly;
+      if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
+      if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
+      if (brandKey.includes('movesport')) return femaleMoveSport;
+      if (brandKey.includes('jackbunny') || brandKey.includes('jack bunny')) return femaleJackBunny;
+      if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
+      return femaleDefault;
+    }
 
-      // 默认男店
-      if (brandKey === 'pearly gates') return malePearly;
+    // 默认男店
+    if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
       if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return maleLeCoq;
       if (brandKey.includes('movesport')) return maleMoveSport;
