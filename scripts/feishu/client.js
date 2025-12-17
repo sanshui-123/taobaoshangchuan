@@ -270,6 +270,24 @@ class FeishuClient {
       targetStatuses = [process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测'];
     }
 
+    // 🛡️ 自动包含“前三步已更新/已提交”等部分完成状态，确保可从 Step4 续跑
+    const partialValue = (process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新').trim();
+    const partialAliases = [
+      partialValue,
+      '前三步已更新',
+      '前三步已提交',
+      '前3步已更新',
+      '前3步已提交'
+    ].map(s => (s || '').trim()).filter(Boolean);
+
+    if (Array.isArray(targetStatuses)) {
+      partialAliases.forEach(v => {
+        if (v && !targetStatuses.includes(v)) {
+          targetStatuses.push(v);
+        }
+      });
+    }
+
     const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
     const pageSize = 500; // 保守使用 500，避免接口上限
 

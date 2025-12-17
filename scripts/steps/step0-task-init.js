@@ -25,6 +25,20 @@ const normalizeProductId = (id) => {
   return String(id).trim().replace(/^0+/, '');
 };
 
+async function fetchAllFeishuRecordsUnfiltered(pageSize = 500) {
+  const all = [];
+  let pageToken = null;
+  let hasMore = true;
+  while (hasMore) {
+    // 传入空数组：不触发状态过滤，同时避免 getRecords 内部的本地过滤逻辑
+    const resp = await feishuClient.getRecords(pageSize, [], pageToken);
+    all.push(...(resp.records || resp.items || []));
+    hasMore = !!resp.has_more;
+    pageToken = resp.page_token || null;
+  }
+  return all;
+}
+
 // 将后续步骤全部标记为 skipped，并持久化缓存
 function markAllSkipped(productId) {
   const existing = loadTaskCache(productId) || {};
@@ -62,7 +76,7 @@ const step0 = async (ctx) => {
       const allRecords = await feishuClient.getAllRecords({ allowDone: ctx.options?.allowDone });
 
       // 查找匹配的记录
-      const record = allRecords.find(r => {
+      let record = allRecords.find(r => {
         const productId = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
         const targetId = normalizeProductId(ctx.productId);
         // 处理商品ID可能是字符串或数组的情况
@@ -74,7 +88,22 @@ const step0 = async (ctx) => {
       });
 
       if (!record) {
-        throw new Error(`未找到商品ID为 ${ctx.productId} 的记录`);
+        // 兜底：某些状态（如“前三步已更新/已完成”等）可能不在 FEISHU_TARGET_STATUS 中，导致 getAllRecords 过滤后找不到
+        ctx.logger.warn('未在目标状态记录中找到该商品，尝试全表查找（忽略状态过滤）...');
+        const allRecordsUnfiltered = await fetchAllFeishuRecordsUnfiltered();
+        record = allRecordsUnfiltered.find(r => {
+          const productId = r.fields[process.env.FEISHU_PRODUCT_ID_FIELD || '商品ID'];
+          const targetId = normalizeProductId(ctx.productId);
+          if (Array.isArray(productId)) {
+            return productId.some(pid => normalizeProductId(pid) === targetId);
+          } else {
+            return normalizeProductId(productId) === targetId;
+          }
+        });
+      }
+
+      if (!record) {
+        throw new Error(`未找到商品ID为 ${ctx.productId} 的记录（已全表查找）`);
       }
 
       await processRecord(record, ctx, { partialValue, skipPhaseARef });
