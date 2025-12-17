@@ -73,6 +73,16 @@ program
 async function runSteps(options) {
   const { product: productId, batch: batchIds } = options;
 
+  // 🛡️ 保护：--product 只允许单个商品ID
+  // 误把一串ID（含空格/换行）传入会导致：飞书查不到记录、缓存/日志目录异常（甚至 ENAMETOOLONG）
+  if (productId && /[\s,]/.test(String(productId).trim())) {
+    console.error('❌ 错误：--product 只支持单个商品ID。检测到你传入了多个ID（包含空格/换行/逗号）。');
+    console.error('   解决方式：请逐个执行，或使用 zsh 数组循环。示例：');
+    console.error('   IDS=(2625260903 2624272137 ...)');
+    console.error('   for id in $IDS; do TAOBAO_STORE=male NODE_ENV=production node scripts/publish.js --product=$id --to=13 --verbose; done');
+    process.exit(1);
+  }
+
   // 确定要执行的步骤范围
   const maxStep = stepNames.length - 1;
   let stepsToRun = [];
