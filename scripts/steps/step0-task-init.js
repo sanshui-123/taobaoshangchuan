@@ -230,9 +230,9 @@ async function processRecord(record, ctx, opts = {}) {
 
   // 获取当前状态
   const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
-  let currentStatus = fields[statusField];
   const normalizeStatus = (s) => (s || '').toString().trim();
-  const normalizedStatus = normalizeStatus(currentStatus);
+  let currentStatus = normalizeStatus(fields[statusField]);
+  const normalizedStatus = currentStatus;
   const partialKeywords = [
     normalizeStatus(partialValue),
     '前三步已更新',
@@ -247,12 +247,27 @@ async function processRecord(record, ctx, opts = {}) {
   const pendingValue = process.env.FEISHU_STATUS_PENDING_VALUE || '待上传';
   const doneValue = process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝';
   const errorValue = process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败';
+  const skipUploadValue = process.env.FEISHU_SKIP_UPLOAD_VALUE || '缺货无需上传';
+  const noNeedUploadValue = process.env.FEISHU_NO_NEED_UPLOAD_VALUE || '无需上传';
+  const outOfStockValue = process.env.FEISHU_OUT_OF_STOCK_VALUE || '都缺货';
+  const successValue = process.env.FEISHU_STATUS_SUCCESS_VALUE || 'success';
 
   // 所有可能的有效状态
-  const validStatuses = [checkingValue, pendingValue, doneValue, errorValue, ''];
+  // 说明：这里用于“防误改”。例如“前三步已更新/无需上传/缺货无需上传”等都不应被强制改为“待检测”
+  const validStatuses = [
+    checkingValue,
+    pendingValue,
+    doneValue,
+    errorValue,
+    skipUploadValue,
+    noNeedUploadValue,
+    outOfStockValue,
+    successValue,
+    ''
+  ];
 
   // 强制执行状态规则：如果状态不是有效值之一，立即更新为"待检测"
-  if (!validStatuses.includes(currentStatus)) {
+  if (!validStatuses.includes(normalizeStatus(currentStatus)) && !isPartialStatus) {
     ctx.logger.warn(`⚠️ 检测到无效状态"${currentStatus}"，强制更新为"${checkingValue}"`);
     await feishuClient.updateRecord(record_id, {
       [statusField]: checkingValue
@@ -262,8 +277,6 @@ async function processRecord(record, ctx, opts = {}) {
 
   // ==================== 库存状态检查：都缺货直接跳过 ====================
   const stockStatusField = process.env.FEISHU_STOCK_STATUS_FIELD || '库存状态';
-  const outOfStockValue = process.env.FEISHU_OUT_OF_STOCK_VALUE || '都缺货';
-  const skipUploadValue = process.env.FEISHU_SKIP_UPLOAD_VALUE || '缺货无需上传';
 
   const stockStatus = fields[stockStatusField];
 
@@ -584,25 +597,31 @@ async function scanAndMarkPending(ctx) {
     const allRecords = response.records || response.items || [];
     const statusField = process.env.FEISHU_STATUS_FIELD || '上传状态';
     const checkingValue = process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测';
+    const normalizeStatus = (s) => (s || '').toString().trim();
 
     // 筛选出需要处理的记录（空状态或无效状态）
     // 🛡️ 重要：保护状态列表，这些状态不会被改为"待检测"
-    const validStatuses = [
+    const validStatuses = new Set([
       process.env.FEISHU_STATUS_CHECKING_VALUE || '待检测',
       process.env.FEISHU_STATUS_PENDING_VALUE || '待上传',
       process.env.FEISHU_STATUS_DONE_VALUE || '已上传到淘宝',
       process.env.FEISHU_STATUS_ERROR_VALUE || '上传失败',
-      '无需上传',  // 🛡️ 保护状态：均码/FR商品不需要上传
-      '都缺货',    // 🛡️ 保护状态：全部缺货的商品
-      'success',   // 🛡️ 保护状态：历史遗留的成功状态
-      '前三步已更新', // 保护状态：部分更新的商品
-      '前3步已更新',  // 保护状态：部分更新的商品(另一种写法)
-      ''
-    ];
+      process.env.FEISHU_NO_NEED_UPLOAD_VALUE || '无需上传',    // 🛡️ 均码/FR商品不需要上传
+      process.env.FEISHU_OUT_OF_STOCK_VALUE || '都缺货',         // 🛡️ 全部缺货
+      process.env.FEISHU_SKIP_UPLOAD_VALUE || '缺货无需上传',     // 🛡️ 缺货无需上传
+      process.env.FEISHU_STATUS_SUCCESS_VALUE || 'success',      // 🛡️ 历史遗留成功
+      process.env.FEISHU_STATUS_PARTIAL_VALUE || '前三步已更新',  // 🛡️ 部分完成（标准配置）
+      '前三步已更新',
+      '前三步已提交',
+      '前3步已更新',
+      '前3步已提交'
+    ].map(normalizeStatus));
 
     const emptyRecords = allRecords.filter(record => {
-      const status = record.fields[statusField];
-      return !status || status === '' || !validStatuses.includes(status);
+      const status = normalizeStatus(record.fields[statusField]);
+      // 空状态需要补全为“待检测”；其余状态若不在保护列表，也统一拉回“待检测”
+      if (!status) return true;
+      return !validStatuses.has(status);
     });
 
     if (emptyRecords.length === 0) {

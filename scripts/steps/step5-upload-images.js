@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
-const { closeMaterialCenterPopups } = require('../utils/advert-handler');
+const { closeAllPopups } = require('../utils/advert-handler');
 
 /**
  * 如果出现裁剪弹窗，点击"确定"继续
@@ -121,18 +121,27 @@ async function handleCropConfirm(page, ctx) {
  */
 async function confirmImageSelection(page, frameLocator, ctx) {
   const candidates = [
+    // 优先：弹窗footer里的主按钮（有些版本按钮文案不是“确定”）
+    frameLocator.locator('.next-dialog-footer button.next-btn-primary, .next-dialog-footer button[class*="primary"]').first(),
     frameLocator.locator('button:has(.next-btn-count):has-text("确定")').first(),
     frameLocator.locator('button:has-text("确定")').first(),
+    frameLocator.locator('button:has-text("完成"), button:has-text("确认"), button:has-text("使用"), button:has-text("应用"), button:has-text("插入"), button:has-text("选好了")').first(),
     page.locator('div.next-dialog-footer button:has-text("确定")').first(),
+    page.locator('.next-dialog, [role="dialog"]').locator('button:has-text("确定")').first(),
     page.locator('button.next-btn-primary:has-text("确定")').first()
   ];
 
   for (const btn of candidates) {
     try {
-      if (btn && await btn.isVisible({ timeout: 500 })) {
+      const count = await btn.count().catch(() => 0);
+      if (count > 0) {
+        // 先滚动，避免按钮在弹窗内部不可见
+        await btn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+      }
+
+      if (btn && await btn.isVisible({ timeout: 500 }).catch(() => false)) {
         const enabled = await btn.isEnabled().catch(() => false);
         if (!enabled) continue;
-        await btn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
         await btn.click({ force: true, timeout: 3000 });
         await page.waitForTimeout(400);
         const disappeared = await btn.waitFor({ state: 'detached', timeout: 2000 }).then(() => true).catch(() => false);
@@ -186,6 +195,508 @@ async function findFolderSearchInput(rootLocator) {
     }
   }
   return null;
+}
+
+/**
+ * 等待素材库弹窗就绪：通过“文件夹搜索框”判定（带重试）
+ * 用于替代 page.waitForSelector 以避免在某些状态下卡死
+ * @returns {Promise<{searchInput: any, workingLocator: any, selector: string, location: string} | null>}
+ */
+async function waitForFolderSearchInput(page, ctx, timeoutMs) {
+  const start = Date.now();
+  let lastLogAt = 0;
+
+  while (Date.now() - start < timeoutMs) {
+    const elapsed = Date.now() - start;
+    if (elapsed - lastLogAt >= 2000) {
+      ctx.logger.info(`  ⏳ 等待素材库弹窗就绪... (${Math.ceil(elapsed / 1000)}s)`);
+      lastLogAt = elapsed;
+    }
+
+    try {
+      const iframeCount = await page.locator('iframe').count().catch(() => 0);
+      if (iframeCount > 0) {
+        for (let i = 0; i < iframeCount; i++) {
+          const frameLocator = page.frameLocator('iframe').nth(i);
+          const result = await findFolderSearchInput(frameLocator);
+          if (result) {
+            const visible = await result.locator.isVisible().catch(() => false);
+            if (visible) {
+              return {
+                searchInput: result.locator,
+                workingLocator: frameLocator,
+                selector: result.selector,
+                location: `iframe#${i + 1}`
+              };
+            }
+            // 可能存在但尚未渲染完成，短等待一次
+            const becameVisible = await result.locator.waitFor({ state: 'visible', timeout: 300 }).then(() => true).catch(() => false);
+            if (becameVisible) {
+              return {
+                searchInput: result.locator,
+                workingLocator: frameLocator,
+                selector: result.selector,
+                location: `iframe#${i + 1}`
+              };
+            }
+          }
+        }
+      }
+
+      const resultInPage = await findFolderSearchInput(page);
+      if (resultInPage) {
+        const visible = await resultInPage.locator.isVisible().catch(() => false);
+        if (visible) {
+          return {
+            searchInput: resultInPage.locator,
+            workingLocator: page,
+            selector: resultInPage.selector,
+            location: 'page'
+          };
+        }
+        const becameVisible = await resultInPage.locator.waitFor({ state: 'visible', timeout: 300 }).then(() => true).catch(() => false);
+        if (becameVisible) {
+          return {
+            searchInput: resultInPage.locator,
+            workingLocator: page,
+            selector: resultInPage.selector,
+            location: 'page'
+          };
+        }
+      }
+    } catch (e) {
+      // 忽略单次检测错误，继续重试
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  return null;
+}
+
+/**
+ * 等待发布页主图区域出现缩略图（用于判定“确定”后是否真正落地）
+ * @returns {Promise<{selector: string, count: number} | null>}
+ */
+async function waitForMainImagesFilled(page, ctx, timeoutMs) {
+  const start = Date.now();
+  const selectors = [
+    // ====== 优先：限定在主图区域内，匹配 alicdn 缩略图 ======
+    '#struct-mainImagesGroup img[src*="alicdn"]',
+    '#mainImagesGroup img[src*="alicdn"]',
+    '[id*="mainImagesGroup"] img[src*="alicdn"]',
+    '.sell-field-mainImagesGroup img[src*="alicdn"]',
+    '[class*="mainImagesGroup"] img[src*="alicdn"]',
+
+    // ====== 兼容：主图区域内任意 img（部分版本不含 alicdn 字样） ======
+    '#struct-mainImagesGroup img',
+    '#mainImagesGroup img',
+    '[id*="mainImagesGroup"] img',
+    '.sell-field-mainImagesGroup img',
+    '[class*="mainImagesGroup"] img',
+
+    // ====== 兼容：缩略图用背景图渲染 ======
+    '#struct-mainImagesGroup [style*="background-image"][style*="alicdn"]',
+    '#mainImagesGroup [style*="background-image"][style*="alicdn"]',
+    '[id*="mainImagesGroup"] [style*="background-image"][style*="alicdn"]',
+    '.sell-field-mainImagesGroup [style*="background-image"][style*="alicdn"]',
+
+    // ====== 旧结构兜底（保留） ======
+    '#struct-mainImagesGroup .upload-pic-box:not(.placeholder) img',
+    '.sell-field-mainImagesGroup .upload-pic-box:not(.placeholder) img',
+    '#struct-mainImagesGroup .upload-pic-box[style*="background-image"]',
+    '.sell-field-mainImagesGroup .upload-pic-box[style*="background-image"]'
+  ];
+
+  while (Date.now() - start < timeoutMs) {
+    for (const selector of selectors) {
+      const count = await page.locator(selector).count().catch(() => 0);
+      if (count > 0) {
+        ctx.logger.info(`  ✅ 主图缩略图已出现（${count}个，${selector}）`);
+        return { selector, count };
+      }
+    }
+    await page.waitForTimeout(1000);
+  }
+
+  return null;
+}
+
+/**
+ * 探测素材库弹窗里是否存在“确定/完成/使用”等确认按钮（快速判定，避免无确认按钮时长时间空转）
+ * @returns {Promise<boolean>}
+ */
+async function hasAnyConfirmButton(page, workingLocator) {
+  const buttonSelectors = [
+    '.next-dialog-footer button.next-btn-primary',
+    '.next-dialog-footer button[class*="primary"]',
+    'button.next-btn-primary:has-text("确定")',
+    'button:has(.next-btn-count)',
+    'button:has-text("确定")',
+    'button:has-text("完成")',
+    'button:has-text("确认")',
+    'button:has-text("使用")',
+    'button:has-text("应用")',
+    'button:has-text("插入")',
+    'button:has-text("选好了")'
+  ];
+
+  const checkInRoot = async (root) => {
+    for (const sel of buttonSelectors) {
+      const btn = root.locator(sel).first();
+      if (await btn.isVisible({ timeout: 150 }).catch(() => false)) {
+        const enabled = await btn.isEnabled().catch(() => false);
+        if (enabled) return true;
+      }
+    }
+    return false;
+  };
+
+  if (workingLocator && await checkInRoot(workingLocator)) return true;
+  if (await checkInRoot(page)) return true;
+
+  const iframeCount = await page.locator('iframe').count().catch(() => 0);
+  for (let i = 0; i < iframeCount; i++) {
+    const root = page.frameLocator('iframe').nth(i);
+    if (await checkInRoot(root)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * 判断素材库选图弹窗是否仍打开（轻量检测）
+ */
+async function isMaterialPickerOpen(page, ctx) {
+  const searchVisible = await waitForFolderSearchInput(page, ctx, 800).then(r => !!r).catch(() => false);
+  if (searchVisible) return true;
+
+  const localUploadVisible = await page.locator('button:has-text("本地上传")').first().isVisible({ timeout: 200 }).catch(() => false);
+  if (localUploadVisible) return true;
+
+  const titleVisible = await page.locator('text=选择图片').first().isVisible({ timeout: 200 }).catch(() => false);
+  return titleVisible;
+}
+
+/**
+ * 使用 JS 在当前文档内兜底点击“确定”（优先在最上层 dialog 内查找）
+ */
+async function forceClickConfirmByJS(page, ctx) {
+  const clickedText = await page.evaluate(() => {
+    const isVisible = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      if (Number(style.opacity || '1') === 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+
+    const zIndexOf = (el) => {
+      const z = parseInt(window.getComputedStyle(el).zIndex || '0', 10);
+      return Number.isFinite(z) ? z : 0;
+    };
+
+    const dialogs = Array.from(document.querySelectorAll('.next-dialog, [role="dialog"]')).filter(isVisible);
+    const root = dialogs.sort((a, b) => zIndexOf(b) - zIndexOf(a))[0] || document;
+
+    const buttons = Array.from(root.querySelectorAll('button')).filter(isVisible).filter(b => !b.disabled);
+    const candidates = buttons.filter((btn) => {
+      const text = (btn.innerText || btn.textContent || '').trim();
+      return (
+        text.includes('确定') || text.includes('確定') ||
+        text.includes('完成') || text.includes('确认') || text.includes('使用') ||
+        text.includes('应用') || text.includes('插入') || text.includes('选好了')
+      );
+    });
+
+    const score = (btn) => {
+      let s = 0;
+      const text = (btn.innerText || btn.textContent || '').trim();
+      if (text === '确定' || text === '確定') s += 10;
+      if (text.includes('确定') || text.includes('確定')) s += 6;
+      const className = String(btn.className || '');
+      if (className.includes('primary') || className.includes('next-btn-primary')) s += 6;
+      if (btn.closest('.next-dialog-footer') || btn.closest('[class*="footer"]') || btn.closest('[class*="Footer"]')) s += 6;
+      return s;
+    };
+
+    candidates.sort((a, b) => score(b) - score(a));
+    let target = candidates[0] || null;
+    if (!target) {
+      // 如果没有文案匹配，兜底选择 footer 里的主按钮
+      const footer = root.querySelector('.next-dialog-footer') || root.querySelector('[class*="footer"]');
+      if (footer) {
+        const primary = footer.querySelector('button.next-btn-primary, button[class*="primary"]');
+        if (primary && isVisible(primary) && !primary.disabled) {
+          target = primary;
+        }
+      }
+    }
+
+    if (!target) return null;
+
+    target.click();
+    return (target.innerText || target.textContent || '').trim() || '确定';
+  }).catch(() => null);
+
+  if (!clickedText) return false;
+  ctx.logger.info(`  ✅ JS 兜底点击素材库“确定”成功（${clickedText}）`);
+  return true;
+}
+
+/**
+ * 确认并关闭素材库弹窗（带重试与兜底）
+ * @returns {Promise<boolean>}
+ */
+async function confirmMaterialPickerWithRetry(page, workingLocator, ctx, productId) {
+  // 先快速判断是否存在确认按钮；没有的话就不浪费时间反复找“确定”
+  const confirmPresent = await hasAnyConfirmButton(page, workingLocator).catch(() => false);
+  if (!confirmPresent) {
+    ctx.logger.info('  ℹ️ 未检测到素材库“确定/完成/使用”按钮，将直接通过“点击空白/基础信息”关闭弹窗');
+    return false;
+  }
+
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    ctx.logger.info(`  🔁 确认选图并关闭弹窗（第${attempt}/${maxAttempts}次）`);
+
+    // 给 UI 一点时间让“确定”从 disabled -> enabled
+    await page.waitForTimeout(400);
+
+    // 1) 先在已命中的定位器上下文里尝试
+    await confirmImageSelection(page, workingLocator, ctx);
+
+    // 2) 如仍未关闭，遍历所有 iframe 再试一轮（有些版本“确定”不在同一个 iframe）
+    if (await isMaterialPickerOpen(page, ctx)) {
+      const iframeCount = await page.locator('iframe').count().catch(() => 0);
+      for (let i = 0; i < iframeCount; i++) {
+        await confirmImageSelection(page, page.frameLocator('iframe').nth(i), ctx);
+        if (!await isMaterialPickerOpen(page, ctx)) break;
+      }
+    }
+
+    // 3) 清理可能遮挡点击的浮层（重要消息/通知等），再试一次
+    if (await isMaterialPickerOpen(page, ctx)) {
+      ctx.logger.info('  🧹 尝试清理遮挡弹窗（重要消息/通知等）...');
+      await closeAllPopups(page, 2).catch(() => {});
+      await confirmImageSelection(page, workingLocator, ctx);
+    }
+
+    // 4) JS 兜底点击（当前文档）
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await forceClickConfirmByJS(page, ctx);
+      await page.waitForTimeout(600);
+    }
+
+    // 5) 键盘兜底：Enter（部分弹窗默认按钮）
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await page.keyboard.press('Enter').catch(() => {});
+      await page.waitForTimeout(600);
+    }
+
+    if (!await isMaterialPickerOpen(page, ctx)) {
+      ctx.logger.success('  ✅ 素材库弹窗已关闭');
+      return true;
+    }
+  }
+
+  // 最终失败：落一个截图，便于人工点一下“确定”
+  try {
+    const screenshotDir = path.resolve(process.cwd(), 'screenshots');
+    const confirmFailScreenshot = path.join(screenshotDir, `${productId}_step5_confirm_failed.png`);
+    await page.screenshot({ path: confirmFailScreenshot, fullPage: false });
+    ctx.logger.error(`  📸 素材库确认失败截图: ${confirmFailScreenshot}`);
+  } catch (e) {
+    // 忽略截图失败
+  }
+
+  return false;
+}
+
+/**
+ * 点击顶部“基础信息”tab（用于回到主表单并触发一些浮层收起）
+ */
+async function clickBasicInfoTab(page, ctx) {
+  const candidates = [
+    'li.next-menu-item:has-text("基础信息")',
+    'li.next-nav-item:has-text("基础信息")',
+    '.next-tabs-tab:has-text("基础信息")',
+    '[role="tab"]:has-text("基础信息")',
+    'a:has-text("基础信息")',
+    'text=基础信息'
+  ];
+
+  for (const selector of candidates) {
+    try {
+      const tab = page.locator(selector).first();
+      if (await tab.isVisible({ timeout: 200 }).catch(() => false)) {
+        await tab.click({ force: true, timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(300);
+        ctx.logger.info('  ✅ 已点击“基础信息”');
+        return true;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  return false;
+}
+
+/**
+ * 尝试关闭素材库选图弹窗（不依赖“确定”按钮）
+ * @returns {Promise<boolean>}
+ */
+async function closeMaterialPickerWithRetry(page, workingLocator, ctx, productId) {
+  const maxAttempts = 3;
+
+  const tryClickMaskInRoot = async (root) => {
+    const candidates = [
+      root.locator('.next-dialog-mask').first(),
+      root.locator('.next-overlay-backdrop').first(),
+      root.locator('.next-overlay-wrapper').first(),
+      root.locator('[class*="mask"]').first(),
+      root.locator('[class*="backdrop"]').first(),
+      root.locator('[class*="overlay"]').first()
+    ];
+
+    for (const mask of candidates) {
+      try {
+        if (await mask.isVisible({ timeout: 150 }).catch(() => false)) {
+          await mask.click({ force: true, timeout: 1000 }).catch(() => {});
+          await page.waitForTimeout(400);
+          return true;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    return false;
+  };
+
+  const tryClickBlankInRoot = async (root) => {
+    const candidates = [
+      root.locator('div.media-wrap').first(),
+      root.locator('.media-wrap').first(),
+      root.locator('[class*="media-wrap"]').first(),
+      root.locator('body').first()
+    ];
+
+    for (const area of candidates) {
+      try {
+        if (await area.isVisible({ timeout: 150 }).catch(() => false)) {
+          await area.click({ force: true, timeout: 1000, position: { x: 10, y: 10 } }).catch(() => {});
+          await page.waitForTimeout(400);
+          return true;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    return false;
+  };
+
+  const tryClickCloseInRoot = async (root) => {
+    const candidates = [
+      root.locator('.next-dialog-close').first(),
+      root.locator('.next-dialog-header .next-icon-close').first(),
+      root.locator('.next-icon-close').first(),
+      root.locator('button[aria-label="Close"], button[aria-label="关闭"]').first(),
+      root.locator('button:has-text("关闭"), button:has-text("取消"), button:has-text("返回")').first(),
+      root.locator('[role="button"]:has-text("关闭"), [role="button"]:has-text("取消")').first()
+    ];
+
+    for (const btn of candidates) {
+      try {
+        if (await btn.count().catch(() => 0)) {
+          await btn.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+        }
+        if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+          await btn.click({ force: true, timeout: 1500 }).catch(() => {});
+          await page.waitForTimeout(400);
+          return true;
+        }
+      } catch (e) {
+        // ignore and try next
+      }
+    }
+    return false;
+  };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (!await isMaterialPickerOpen(page, ctx)) return true;
+
+    ctx.logger.info(`  🔁 尝试关闭素材库弹窗（第${attempt}/${maxAttempts}次）`);
+
+    // 1) 优先在已命中的 iframe 上下文里点关闭/点遮罩/点空白
+    if (workingLocator) {
+      await tryClickCloseInRoot(workingLocator).catch(() => {});
+      if (await isMaterialPickerOpen(page, ctx)) {
+        await tryClickMaskInRoot(workingLocator).catch(() => {});
+      }
+      if (await isMaterialPickerOpen(page, ctx)) {
+        await tryClickBlankInRoot(workingLocator).catch(() => {});
+      }
+    }
+
+    // 2) 遍历所有 iframe，尝试点关闭/遮罩/空白
+    if (await isMaterialPickerOpen(page, ctx)) {
+      const iframeCount = await page.locator('iframe').count().catch(() => 0);
+      for (let i = 0; i < iframeCount; i++) {
+        const frameRoot = page.frameLocator('iframe').nth(i);
+        await tryClickCloseInRoot(frameRoot).catch(() => {});
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickMaskInRoot(frameRoot).catch(() => {});
+        }
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickBlankInRoot(frameRoot).catch(() => {});
+        }
+        if (!await isMaterialPickerOpen(page, ctx)) break;
+      }
+    }
+
+    // 3) 主页面上尝试点关闭
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await tryClickCloseInRoot(page).catch(() => {});
+    }
+
+    // 4) 主页面点击遮罩/空白处关闭（部分版本支持）
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await tryClickMaskInRoot(page).catch(() => {});
+      if (await isMaterialPickerOpen(page, ctx)) {
+        await tryClickBlankInRoot(page).catch(() => {});
+      }
+    }
+
+    // 5) 参考人工操作：点一下“基础信息”（有些浮层需要失焦才会收起）
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await clickBasicInfoTab(page, ctx).catch(() => {});
+    }
+
+    // 7) 最后兜底：点页面左上角空白
+    if (await isMaterialPickerOpen(page, ctx)) {
+      await page.mouse.click(10, 10).catch(() => {});
+      await page.waitForTimeout(500);
+    }
+
+    if (!await isMaterialPickerOpen(page, ctx)) {
+      ctx.logger.success('  ✅ 素材库弹窗已关闭（关闭兜底）');
+      return true;
+    }
+  }
+
+  try {
+    const screenshotDir = path.resolve(process.cwd(), 'screenshots');
+    const closeFailScreenshot = path.join(screenshotDir, `${productId}_step5_close_failed.png`);
+    await page.screenshot({ path: closeFailScreenshot, fullPage: false });
+    ctx.logger.error(`  📸 素材库关闭失败截图: ${closeFailScreenshot}`);
+  } catch (e) {
+    // ignore
+  }
+
+  return false;
 }
 
 /**
@@ -408,88 +919,32 @@ const step5 = async (ctx) => {
     await scrollToTop();
     await page.waitForTimeout(500);
 
-    // 等待弹窗出现（限时 8 秒）
-    ctx.logger.info('\n等待"选择图片"弹窗出现...');
+	    // 等待弹窗出现（限时 8 秒）
+	    ctx.logger.info('\n等待"选择图片"弹窗出现...');
+	    // 不使用 waitForSelector（在某些状态下会卡死），改用重试探测
+	    await page.waitForTimeout(200);
 
-    let popupDetected = false;
-    const popupStart = Date.now();
-    try {
-      // 方式1：等待 iframe（素材库通常在 iframe 中）
-      await page.waitForSelector('iframe', { timeout: 5000 });
-      ctx.logger.success('✅ 检测到 iframe');
-      popupDetected = true;
-    } catch (e) {
-      ctx.logger.warn('未检测到 iframe，尝试其他方式...');
-    }
+	    // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
+	    ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
 
-    if (!popupDetected) {
-      try {
-        // 方式2：等待素材库特征元素
-        await page.waitForSelector('.next-dialog, [class*="material"], [class*="upload"]', { timeout: 3000 });
-        ctx.logger.success('✅ 检测到弹窗元素');
-        popupDetected = true;
-      } catch (e) {
-        ctx.logger.warn('未检测到弹窗元素，继续执行...');
-      }
-    }
+	    // 声明工作定位器（需要在try外部声明，以便后续步骤使用）
+	    let workingLocator;  // 工作的定位器（iframe或page）
 
-    if (!popupDetected || Date.now() - popupStart > 8000) {
-      throw new Error('等待素材库弹窗超时');
-    }
+	    // 方案A：优先使用搜索框（根据实际弹窗结构）
+	    try {
+	      ctx.logger.info('  🔍 等待搜索框就绪（最多15秒）...');
+	      const found = await waitForFolderSearchInput(page, ctx, 15000);
+	      if (!found) {
+	        throw new Error(`等待弹窗搜索框超时（已尝试 ${SEARCH_INPUT_SELECTORS.length} 个候选选择器）`);
+	      }
 
-    // 等待弹窗内容加载（最长 0.5 秒）
-    ctx.logger.info('等待弹窗内容加载...');
-    await page.waitForTimeout(200);
-    ctx.logger.success('✅ 弹窗加载完成');
+	      const searchInput = found.searchInput;
+	      workingLocator = found.workingLocator;
+	      ctx.logger.success(`  ✅ 在${found.location}中找到搜索框（${found.selector}）`);
 
-    // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
-    ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
-
-    // 声明工作定位器（需要在try外部声明，以便后续步骤使用）
-    let workingLocator;  // 工作的定位器（iframe或page）
-
-    // 方案A：优先使用搜索框（根据实际弹窗结构）
-    try {
-      // 智能检测：弹窗可能在iframe中，也可能在普通弹窗中
-      ctx.logger.info('  🔍 检测弹窗类型...');
-
-      let searchInput;
-
-      // 方式1：遍历 iframe 查找搜索框（素材库弹窗通常位于 iframe 内）
-      const iframeCount = await page.locator('iframe').count();
-      if (iframeCount > 0) {
-        ctx.logger.info(`  检测到 ${iframeCount} 个 iframe，优先在 iframe 中查找搜索框...`);
-
-        for (let i = 0; i < iframeCount; i++) {
-          const frameLocator = page.frameLocator('iframe').nth(i);
-          const result = await findFolderSearchInput(frameLocator);
-          if (result) {
-            searchInput = result.locator;
-            workingLocator = frameLocator;
-            ctx.logger.success(`  ✅ 在第 ${i + 1} 个 iframe 中找到搜索框（${result.selector}）`);
-            break;
-          }
-        }
-      }
-
-      // 方式2：如果 iframe 中未找到，则退回主页面查找
-      if (!searchInput) {
-        ctx.logger.info('  iframe 中未找到，尝试在主页面查找搜索框...');
-        const resultInPage = await findFolderSearchInput(page);
-        if (resultInPage) {
-          searchInput = resultInPage.locator;
-          workingLocator = page;
-          ctx.logger.success(`  ✅ 在主页面中找到搜索框（${resultInPage.selector}）`);
-        }
-      }
-
-      if (!searchInput) {
-        throw new Error(`在弹窗中未找到搜索框（已尝试 ${SEARCH_INPUT_SELECTORS.length} 个候选选择器）`);
-      }
-
-      // 等待搜索框可见并可操作
-      await searchInput.waitFor({ state: 'visible', timeout: 5000 });
-      ctx.logger.success('  ✅ 搜索框已就绪');
+	      // 等待搜索框可见并可操作
+	      await searchInput.waitFor({ state: 'visible', timeout: 5000 });
+	      ctx.logger.success('  ✅ 搜索框已就绪');
 
       // 清空并输入 productId
       ctx.logger.info(`  ⌨️  准备输入商品ID: ${productId}`);
@@ -613,66 +1068,59 @@ const step5 = async (ctx) => {
       ctx.logger.warn(`\n⚠️  搜索框方案失败: ${searchError.message}`);
       ctx.logger.info('  🔄 切换到方案B：左侧文件夹树');
 
-      try {
-        // 智能检测：确定使用 iframe 还是主页面
-        ctx.logger.info('  🔍 检测弹窗类型（用于文件夹树）...');
+	      try {
+	        // 智能检测：确定使用 iframe 还是主页面
+	        ctx.logger.info('  🔍 检测弹窗类型（用于文件夹树）...');
 
-        let treeLocator;
-        const iframeCount = await page.locator('iframe').count();
+	        ctx.logger.info('  📂 在左侧文件夹树中查找文件夹...');
 
-        if (iframeCount > 0) {
-          ctx.logger.info('  使用 iframe 定位器');
-          treeLocator = page.frameLocator('iframe').first();
-        } else {
-          ctx.logger.info('  使用主页面定位器');
-          treeLocator = page;
-        }
-
-        ctx.logger.info('  📂 在左侧文件夹树中查找文件夹...');
-
-        // 尝试多种可能的文件夹树选择器（按优先级排序）
-        const treeFolderSelectors = [
-          `[title="${productId}"]`,                    // title属性（最精确）
+	        // 尝试多种可能的文件夹树选择器（按优先级排序）
+	        const treeFolderSelectors = [
+	          `[title="${productId}"]`,                    // title属性（最精确）
           `.folder-item:has-text("${productId}")`,     // 文件夹项
           `.PicGroupList :has-text("${productId}")`,   // PicGroupList中的元素
           `.folder-tree :has-text("${productId}")`,    // folder-tree中的元素
           `text="${productId}"`,                       // 精确文本匹配
-          `:has-text("${productId}")`,                 // 包含文本
-        ];
+	          `:has-text("${productId}")`,                 // 包含文本
+	        ];
 
-        let folderFound = false;
-        for (const selector of treeFolderSelectors) {
-          try {
-            const folderInTree = treeLocator.locator(selector).first();  // 使用树定位器
-            const count = await folderInTree.count();
+	        let folderFound = false;
+	        const treeStart = Date.now();
+	        while (Date.now() - treeStart < 12000 && !folderFound) {
+	          // 弹窗可能在 iframe 中，也可能直接渲染在主页面
+	          const iframeCount = await page.locator('iframe').count().catch(() => 0);
+	          const treeLocator = iframeCount > 0 ? page.frameLocator('iframe').first() : page;
 
-            // ctx.logger.info(`  🔎 尝试树选择器: ${selector} (找到 ${count} 个)`);
+	          for (const selector of treeFolderSelectors) {
+	            try {
+	              const folderInTree = treeLocator.locator(selector).first();  // 使用树定位器
+	              const count = await folderInTree.count();
+	              if (count > 0) {
+	                // 确保元素可见
+	                await folderInTree.waitFor({ state: 'visible', timeout: 2000 });
+	                // 点击文件夹
+	                await folderInTree.click({ timeout: 3000 });
+	                ctx.logger.success(`  ✅ 成功从侧边栏选择文件夹（选择器: ${selector}）`);
+	                folderFound = true;
+	                break;
+	              }
+	            } catch (e) {
+	              // 树选择器失败，继续...
+	              continue;
+	            }
+	          }
 
-            if (count > 0) {
-              // 确保元素可见
-              await folderInTree.waitFor({ state: 'visible', timeout: 2000 });
+	          if (!folderFound) {
+	            await page.waitForTimeout(500);
+	          }
+	        }
 
-              // 点击文件夹
-              await folderInTree.click({ timeout: 3000 });
-              ctx.logger.success(`  ✅ 成功从侧边栏选择文件夹（选择器: ${selector}）`);
+	        if (!folderFound) throw new Error(`在左侧文件夹树中未找到文件夹: ${productId}`);
 
-              folderFound = true;
-              break;
-            }
-          } catch (e) {
-            // 树选择器失败，继续...
-            continue;
-          }
-        }
+	        ctx.logger.success(`✅ 已从侧边栏选择文件夹: ${productId}`);
+	        await page.waitForTimeout(2000);
 
-        if (!folderFound) {
-          throw new Error(`在左侧文件夹树中未找到文件夹: ${productId}`);
-        }
-
-        ctx.logger.success(`✅ 已从侧边栏选择文件夹: ${productId}`);
-        await page.waitForTimeout(2000);
-
-        // 文件夹树操作后再次滚动
+	        // 文件夹树操作后再次滚动
         await scrollToTop();
         await page.waitForTimeout(500);
 
@@ -837,103 +1285,30 @@ const step5 = async (ctx) => {
         ctx,
         imageCardSelector  // 传入实际命中的卡片选择器，避免类名不一致
       );
-      ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
+	      ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-      // ==================== 点击素材库确定按钮 ====================
-      ctx.logger.info('\n[步骤6.5] 点击素材库弹窗确定按钮');
+	      // ==================== 确认选图并关闭素材库弹窗 ====================
+	      ctx.logger.info('\n[步骤6.5] 确认选图结果并关闭素材库弹窗');
 
-      try {
-        // 素材库弹窗的确定按钮 - 多种选择器策略
-        // 策略1: 带计数的确定按钮（旧版）
-        const confirmWithCount = uploadLocator.locator('button:has(.next-btn-count):has-text("确定")');
+	      // 先尝试常规“确定/完成/主按钮”
+	      await confirmMaterialPickerWithRetry(page, uploadLocator, ctx, productId);
 
-        // 策略2: 主按钮样式的确定按钮（新版，基于实际DOM）
-        const confirmPrimaryBtn = uploadLocator.locator('button.next-btn-primary:has-text("确定")');
+	      // 如果未自动关闭（常见于：未满5张/无确定按钮/需要失焦），按“点空白/基础信息”方式强制收起
+	      if (await isMaterialPickerOpen(page, ctx)) {
+	        ctx.logger.warn('  ⚠️ 弹窗仍未关闭，尝试点击空白/基础信息以收起...');
+	        await closeMaterialPickerWithRetry(page, uploadLocator, ctx, productId);
+	      }
 
-        // 策略3: 带括号数字的确定按钮
-        const fallbackWithBracket = uploadLocator.locator('button').filter({
-          hasText: /\(\s*\d+\s*\)/
-        }).filter({
-          hasText: /确定|確定/
-        });
+	      if (await isMaterialPickerOpen(page, ctx)) {
+	        throw new Error('素材库弹窗仍未关闭（可手动点击空白处/基础信息/右上角关闭后重试）');
+	      }
 
-        // 策略4: 任何包含"确定"的按钮（最后兜底）
-        const fallbackAnyConfirm = uploadLocator.locator('button').filter({
-          hasText: /确定|確定/
-        });
+	      // 回到基础信息，确保后续步骤不被遮挡
+	      await clickBasicInfoTab(page, ctx).catch(() => {});
+	      await clickBasicInfoTab(page, ctx).catch(() => {});
 
-        let imageLibraryConfirmBtn = null;
-        const countStrategy1 = await confirmWithCount.count();
-        const countStrategy2 = await confirmPrimaryBtn.count();
-        const countStrategy3 = await fallbackWithBracket.count();
-        const countStrategy4 = await fallbackAnyConfirm.count();
-        ctx.logger.info(`  🔍 确定按钮匹配: strategy1=${countStrategy1}, strategy2=${countStrategy2}, strategy3=${countStrategy3}, strategy4=${countStrategy4}`);
-
-        if (countStrategy1 > 0) {
-          imageLibraryConfirmBtn = confirmWithCount;
-          ctx.logger.info('  ℹ️ 使用策略1（带计数元素）');
-        } else if (countStrategy2 > 0) {
-          imageLibraryConfirmBtn = confirmPrimaryBtn;
-          ctx.logger.info('  ℹ️ 使用策略2（主按钮样式 .next-btn-primary）');
-        } else if (countStrategy3 > 0) {
-          imageLibraryConfirmBtn = fallbackWithBracket;
-          ctx.logger.info('  ℹ️ 使用策略3（括号数字匹配）');
-        } else if (countStrategy4 > 0) {
-          imageLibraryConfirmBtn = fallbackAnyConfirm;
-          ctx.logger.info('  ℹ️ 使用策略4（通用确定按钮）');
-        } else {
-          throw new Error('未找到任何确定按钮选择器');
-        }
-
-        await imageLibraryConfirmBtn.first().waitFor({ state: 'visible', timeout: 8000 });
-        await imageLibraryConfirmBtn.first().scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-
-        const enabled = await imageLibraryConfirmBtn.first().isEnabled();
-        if (!enabled) {
-          throw new Error('素材库确定按钮不可用');
-        }
-
-        // 尝试 Playwright 点击
-        let clickSuccess = false;
-        try {
-          await imageLibraryConfirmBtn.first().click({ force: true, timeout: 3000 });
-          clickSuccess = true;
-        } catch (e) {
-          ctx.logger.warn(`  ⚠️ Playwright 点击失败: ${e.message}`);
-        }
-
-        // 如果 Playwright 点击失败，尝试 JavaScript 点击
-        if (!clickSuccess) {
-          ctx.logger.info('  🔄 尝试使用 JavaScript 点击...');
-          await imageLibraryConfirmBtn.first().evaluate(btn => btn.click());
-          clickSuccess = true;
-          ctx.logger.info('  ✅ JavaScript 点击完成');
-        }
-
-        // 若首次点击后按钮仍存在，再尝试一次点击（防止首次未生效）
-        try {
-          await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 3000 });
-        } catch (e) {
-          ctx.logger.warn('  ⚠️ 首次点击后按钮仍在，重试一次');
-          try {
-            await imageLibraryConfirmBtn.first().click({ force: true });
-          } catch (e2) {
-            await imageLibraryConfirmBtn.first().evaluate(btn => btn.click());
-          }
-        }
-
-        // 再等弹窗关闭或按钮消失，最多5秒
-        await imageLibraryConfirmBtn.first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-        await page.waitForTimeout(500);
-
-        ctx.logger.info('  ✅ 已点击素材库确定按钮');
-      } catch (error) {
-        ctx.logger.warn(`  ⚠️ 点击确定按钮失败，尝试继续: ${error.message}`);
-      }
-
-      // 如出现裁剪弹窗，自动点击"确定"
-      await handleCropConfirm(page, ctx);
+	      // 如出现裁剪弹窗，自动点击"确定"
+	      await handleCropConfirm(page, ctx);
 
       // ==================== 上传完成检查（限时） ====================
       ctx.logger.info('\n[步骤7] 检查上传完成状态...');
@@ -978,6 +1353,13 @@ const step5 = async (ctx) => {
         ctx.logger.warn('⚠️ 上传完成检查超时，继续后续流程（可能已上传）');
       } else {
         ctx.logger.info('✅ 上传完成检查通过');
+      }
+
+      // ==================== 发布页落地验证（限时） ====================
+      ctx.logger.info('\n[步骤7.5] 检查发布页主图是否已落地...');
+      const mainImagesOk = await waitForMainImagesFilled(page, ctx, 15000);
+      if (!mainImagesOk) {
+        throw new Error('主图未落到发布页（1:1主图仍为空），建议关闭弹窗后重试');
       }
 
       // ==================== 文件列表验证（限 3 次） ====================
@@ -1050,10 +1432,24 @@ const step5 = async (ctx) => {
     updateStepStatus(ctx.productId, 5, 'failed');
     throw error;
 
-  } finally {
-    clearInterval(heartbeat);
-    process.stdout.write('\n');
-  }
+	  } finally {
+	    // 恢复上传位可点击，避免重跑时因 pointer-events=none 造成误判/无法点击
+	    if (ctx.page1) {
+	      try {
+	        await ctx.page1.evaluate(() => {
+	          const uploadBoxes = document.querySelectorAll('.upload-pic-box, [class*="upload"], .sell-field-mainImagesGroup .upload-item');
+	          uploadBoxes.forEach((box) => {
+	            box.style.pointerEvents = '';
+	            box.style.opacity = '';
+	          });
+	        });
+	      } catch (e) {
+	        // 忽略恢复失败
+	      }
+	    }
+	    clearInterval(heartbeat);
+	    process.stdout.write('\n');
+	  }
 };
 
 /**
@@ -1167,43 +1563,62 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
 
   const brandKey = (brand || '').trim().toLowerCase();
 
+  // 统一使用 locator nth + hoverBK 点击，避免“点击卡片只会单选/预览”导致只选中1张
+  const cardSel = imageCardSelector || '.PicList_pic_background__pGTdV';
+  const cardLocator = uploadFrame.locator(cardSel);
+  const safeCount = await cardLocator.count().catch(() => 0);
+  const totalCards = safeCount || imageCount;
+
+  const clickCardForMultiSelect = async (cardIndex) => {
+    const page = ctx.page1;
+    const card = cardLocator.nth(cardIndex);
+
+    await card.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 120));
+
+    // hover 后优先点蓝色选中遮罩（多选更稳）
+    await card.hover({ timeout: 1500 }).catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    const overlayCandidates = [
+      '.PicList_hoverBK__zH1fy',
+      '[class*="hoverBK"]',
+      '[class*="hoverBk"]'
+    ];
+
+    for (const sel of overlayCandidates) {
+      const overlay = card.locator(sel).first();
+      if (await overlay.isVisible({ timeout: 120 }).catch(() => false)) {
+        await overlay.click({ force: true, timeout: 2000 }).catch(() => {});
+        if (page) await page.waitForTimeout(80).catch(() => {});
+        return true;
+      }
+    }
+
+    // fallback：直接点卡片
+    await card.click({ timeout: 3000 }).catch(() => {});
+    if (page) await page.waitForTimeout(80).catch(() => {});
+    return true;
+  };
+
   // ========== 品牌特例：倒序取5张 ==========
-  const specialBrands = ['le coq公鸡乐卡克', 'pearly gates', '万星威munsingwear', 'munsingwear', 'taylormade泰勒梅'];
-  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport') || (brandKey.includes('master') && brandKey.includes('bunny'));
+  const specialBrands = ['le coq公鸡乐卡克', 'pearly gates', '万星威munsingwear', 'munsingwear', 'taylormade泰勒梅', 'ping', 'mizuno', '美津浓'];
+  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport') || (brandKey.includes('master') && brandKey.includes('bunny')) || brandKey.includes('ping') || brandKey.includes('mizuno') || brandKey.includes('美津浓');
   if (isSpecialBrand) {
     ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
 
-    // 缓存所有图片元素
-    const cardLocator = uploadFrame.locator(imageCardSelector || '.PicList_pic_background__pGTdV');
-    ctx.logger.info(`  📦 使用选择器 "${imageCardSelector || '.PicList_pic_background__pGTdV'}" 缓存图片列表...`);
-    const cardHandles = await cardLocator.elementHandles();
-    ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
-
     // 确定要选择的图片数量（最多5张，如果少于5张则全取）
-    const selectCount = Math.min(5, cardHandles.length);
+    const selectCount = Math.min(5, totalCards);
     ctx.logger.info(`  📋 计划选择: ${selectCount} 张图片（从最后往前）\n`);
 
     // 从最后一张往前选择
       for (let i = 0; i < selectCount; i++) {
-        const targetIndex = cardHandles.length - 1 - i;  // 倒数第(i+1)张
+        const targetIndex = totalCards - 1 - i;  // 倒数第(i+1)张
         ctx.logger.info(`第${i+1}张 → 索引${targetIndex} (倒数第${i+1}张)`);
 
         try {
-        const cardHandle = cardHandles[targetIndex];
-
-        if (!cardHandle) {
-          ctx.logger.warn(`  ⚠️  索引${targetIndex}没有元素，跳过`);
-          continue;
-        }
-
-        // 滚动到视图中
-        await cardHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
-
-        // 等待动画稳定
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // 点击图片卡片
-        await cardHandle.click({ timeout: 3000 });
+        const clicked = await clickCardForMultiSelect(targetIndex);
+        if (!clicked) throw new Error('点击失败');
 
         selectedCount++;
         ctx.logger.info(`  ✅ 第${i+1}张 → 索引${targetIndex} → 成功`);
@@ -1239,19 +1654,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   // ========== 其他品牌：使用原有颜色策略 ==========
   ctx.logger.info(`  规则: 固定5次点击，根据颜色数智能选择索引\n`);
 
-  // 🔧 修复：提前缓存所有图片元素，避免 DOM 重排导致索引偏移
-  ctx.logger.info('  📦 缓存图片列表（避免DOM重排影响）...');
-  const cardLocator = uploadFrame.locator(imageCardSelector || '.PicList_pic_background__pGTdV');
-  ctx.logger.info(`  📦 使用选择器 "${imageCardSelector || '.PicList_pic_background__pGTdV'}" 缓存图片列表...`);
-  const cardHandles = await cardLocator.elementHandles();
-  ctx.logger.info(`  ✅ 已缓存 ${cardHandles.length} 个图片元素\n`);
-
-  // 🔧 封装获取卡片的辅助函数（带边界保护）
-  const getCardByIndex = (targetIndex) => {
-    // 边界保护：确保索引在有效范围内
-    const actualIndex = Math.min(Math.max(targetIndex, 0), cardHandles.length - 1);
-    return { handle: cardHandles[actualIndex], actualIndex };
-  };
+  ctx.logger.info(`  📦 使用选择器 "${cardSel}"（total=${totalCards}）\n`);
 
   // 定义5次点击的索引选择规则
   const clickRules = [
@@ -1335,24 +1738,12 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     ctx.logger.info(`${rule.name} → 目标索引${targetIndex} (${ruleName})`);
 
     try {
-      // 从缓存的 cardHandles 中获取元素（避免 DOM 重排影响）
-      const { handle: cardHandle, actualIndex } = getCardByIndex(targetIndex);
-
-      if (!cardHandle) {
-        ctx.logger.warn(`  ⚠️  索引${actualIndex}没有元素，跳过`);
-        continue;
-      }
-
+      // 边界保护：确保索引在有效范围内
+      const actualIndex = Math.min(Math.max(targetIndex, 0), totalCards - 1);
       ctx.logger.info(`  → 实际索引${actualIndex}`);
 
-      // 滚动到视图中
-      await cardHandle.scrollIntoViewIfNeeded({ timeout: 3000 });
-
-      // 等待动画稳定
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      // 直接点击图片卡片（elementHandle 可以直接调用 click）
-      await cardHandle.click({ timeout: 3000 });
+      const clicked = await clickCardForMultiSelect(actualIndex);
+      if (!clicked) throw new Error('点击失败');
 
       selectedCount++;
       ctx.logger.info(`  ✅ ${rule.name} → 索引${actualIndex} → 成功`);
@@ -1390,33 +1781,39 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
  * 应用降级策略
  */
 async function applyFallbackStrategy(page, productId, ctx) {
-  ctx.logger.info('应用降级策略：选择所有可见图片');
+  ctx.logger.info('应用降级策略：尝试关闭弹窗并验证主图落地');
 
   try {
-    // 重新打开上传对话框（优化：2秒降到500ms）
-    await page.click('.next-tabs-tab:has-text("素材库")');
-    await page.waitForTimeout(500);
+    // 如果主图已经落地，优先尝试关闭弹窗并返回（避免误判卡死）
+    const mainImagesOk = await waitForMainImagesFilled(page, ctx, 8000);
+    const picker = await waitForFolderSearchInput(page, ctx, 1200).catch(() => null);
+    const working = picker ? picker.workingLocator : null;
 
-    // 处理素材库页面的广告弹窗
-    await closeMaterialCenterPopups(page);
-
-    await page.click('.next-tabs-tab:has-text("图片")');
-    await page.click('text=上传图片');
-    await page.waitForTimeout(500);
-
-    // 选择所有图片
-    const uploadFrame = page.frameLocator('iframe').first();
-    const allImages = await uploadFrame.locator('.PicList_pic_background__pGTdV').count();
-
-    for (let i = 0; i < allImages; i++) {
-      await uploadFrame.locator('.PicList_pic_background__pGTdV').nth(i).click();
-      await uploadFrame.waitForTimeout(100);
+    if (mainImagesOk) {
+      if (await isMaterialPickerOpen(page, ctx)) {
+        await closeMaterialPickerWithRetry(page, working, ctx, productId).catch(() => {});
+      }
+      ctx.logger.success('✅ 降级策略：主图已落地');
+      return;
     }
 
-    await uploadFrame.locator('.next-btn-primary:has-text("确定")').click();
-    await page.waitForTimeout(3000);
+    // 尝试清理遮挡弹窗（重要消息/通知等）
+    await closeAllPopups(page, 2).catch(() => {});
 
-    ctx.logger.success('✅ 降级策略执行成功');
+    // 仍在选图弹窗中：再试一次确认/关闭
+    if (await isMaterialPickerOpen(page, ctx)) {
+      if (working) {
+        await confirmMaterialPickerWithRetry(page, working, ctx, productId).catch(() => {});
+      }
+      await closeMaterialPickerWithRetry(page, working, ctx, productId).catch(() => {});
+    }
+
+    const mainImagesAfter = await waitForMainImagesFilled(page, ctx, 10000);
+    if (!mainImagesAfter) {
+      throw new Error('主图仍未落地');
+    }
+
+    ctx.logger.success('✅ 降级策略执行成功（主图已落地）');
   } catch (error) {
     ctx.logger.error(`降级策略失败: ${error.message}`);
     throw error;

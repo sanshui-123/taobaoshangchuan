@@ -4,6 +4,7 @@
  */
 const path = require('path');
 const browserManager = require('./browser-manager');
+const { closeAllPopups } = require('./advert-handler');
 
 /**
  * 检查商品是否已存在于淘宝
@@ -29,7 +30,7 @@ async function checkProductExists(productId) {
 
   // 获取浏览器配置
   const headless = process.env.HEADLESS !== 'false';  // 默认为true，只有明确设置为false时才显示浏览器
-  const timeout = parseInt(process.env.TIMEOUT || '30000');
+  const timeout = parseInt(process.env.TAOBAO_TIMEOUT || process.env.TIMEOUT || '30000', 10);
 
   console.log(`\n🔍 开始检查商品是否存在: ${productId}`);
   console.log(`📁 存储状态文件: ${storageStatePath}`);
@@ -43,14 +44,15 @@ async function checkProductExists(productId) {
     // 获取已有页面（不创建新页面）
     page = await browserManager.getPage();
     page.setDefaultTimeout(timeout);
+    page.setDefaultNavigationTimeout(timeout);
     console.log('✅ 复用已有页面');
 
     // 访问千牛卖家中心-我的商品页面
     console.log('📖 访问千牛卖家中心商品管理页面...');
     try {
       await page.goto('https://myseller.taobao.com/home.htm/SellManage/all?current=1&pageSize=20', {
-        waitUntil: 'networkidle',
-        timeout: 30000 // 30秒超时
+        waitUntil: 'domcontentloaded',
+        timeout: timeout
       });
     } catch (error) {
       // 页面加载失败，截图并抛出异常
@@ -58,12 +60,13 @@ async function checkProductExists(productId) {
     }
 
     // 等待页面加载
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1500);
+    await closeAllPopups(page, 2).catch(() => {});
 
     // 等待主表格真正渲染完
     console.log('⏳ 等待主表格渲染...');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('div.next-table', { timeout: 20000 });
+    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    await page.waitForSelector('#queryOuterId', { timeout: 20000 });
     console.log('✅ 主表格已渲染');
 
     try {
@@ -88,7 +91,8 @@ async function checkProductExists(productId) {
       console.log('✅ 已点击搜索按钮');
 
       // 等待搜索结果
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(1500);
+      await closeAllPopups(page, 1).catch(() => {});
 
     } catch (error) {
       // 打印详细错误信息
@@ -277,7 +281,7 @@ async function checkMultipleProductsExists(productIds) {
 
   // 获取浏览器配置
   const headless = process.env.HEADLESS !== 'false';
-  const timeout = parseInt(process.env.TIMEOUT || '30000');
+  const timeout = parseInt(process.env.TAOBAO_TIMEOUT || process.env.TIMEOUT || '30000', 10);
 
   console.log(`\n🔍 开始批量检查 ${productIds.length} 个商品是否存在`);
   console.log(`📁 存储状态文件: ${storageStatePath}`);
@@ -290,14 +294,15 @@ async function checkMultipleProductsExists(productIds) {
     // 获取已有页面
     page = await browserManager.getPage();
     page.setDefaultTimeout(timeout);
+    page.setDefaultNavigationTimeout(timeout);
     console.log('✅ 复用已有页面');
 
     // 访问千牛卖家中心商品管理页面（只访问一次）
     console.log('📖 访问千牛卖家中心商品管理页面...');
     try {
       await page.goto('https://myseller.taobao.com/home.htm/SellManage/all?current=1&pageSize=20', {
-        waitUntil: 'networkidle',
-        timeout: 30000
+        waitUntil: 'domcontentloaded',
+        timeout: timeout
       });
       console.log('✅ 千牛卖家中心页面加载成功');
     } catch (error) {
@@ -305,6 +310,9 @@ async function checkMultipleProductsExists(productIds) {
       productIds.forEach(id => resultMap.set(id, false));
       return resultMap;
     }
+
+    await page.waitForTimeout(1500);
+    await closeAllPopups(page, 2).catch(() => {});
 
     // 等待主表格渲染
     try {

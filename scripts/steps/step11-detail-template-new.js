@@ -113,9 +113,15 @@ const step11Detail = async (ctx) => {
     await page.waitForTimeout(500);
 
     // 按品牌选择模板：PEARLY GATES 用专属模板，其余用默认
-    const templateName = productData.brand === 'PEARLY GATES'
+    const brandKey = (productData.brand || '').trim().toLowerCase();
+    const defaultTemplate = process.env.DETAIL_TEMPLATE_DEFAULT || '卡-LL=';
+    const pingTemplate = process.env.DETAIL_TEMPLATE_PING || '卡-LL=';
+    const mizunoTemplate = process.env.DETAIL_TEMPLATE_MIZUNO || '卡-LL=';
+    const templateName = brandKey === 'pearly gates'
       ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
-      : (process.env.DETAIL_TEMPLATE_DEFAULT || '卡-LL=');
+      : (brandKey.includes('ping')
+        ? pingTemplate
+        : ((brandKey.includes('mizuno') || brandKey.includes('美津浓')) ? mizunoTemplate : defaultTemplate));
 
     const templateOption = page.getByText(templateName, { exact: true });
     await templateOption.click();

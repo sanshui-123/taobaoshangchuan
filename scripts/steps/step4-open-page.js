@@ -2,9 +2,66 @@ const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const browserManager = require('../utils/browser-manager');
+const { closeAllPopups } = require('../utils/advert-handler');
 
 // 通用模板的固定尺码顺序（包含8个尺码，含均码）
 const TEMPLATE_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '均码'];
+
+/**
+ * 兜底：若页面残留“选择图片/素材库”弹窗，尝试按空白/基础信息关闭
+ * 用户反馈：未满 5 张时弹窗可能不会自动关闭，导致后续点击卡住
+ */
+async function dismissMaterialPickerIfAny(page, logger) {
+  const isPickerOpen = async () => {
+    const titleVisible = await page.locator('text=选择图片').first().isVisible({ timeout: 200 }).catch(() => false);
+    if (titleVisible) return true;
+
+    const iframeCount = await page.locator('iframe').count().catch(() => 0);
+    for (let i = 0; i < iframeCount; i++) {
+      const frame = page.frameLocator('iframe').nth(i);
+      const frameTitle = await frame.locator('text=选择图片').first().isVisible({ timeout: 200 }).catch(() => false);
+      if (frameTitle) return true;
+      const frameSearch = await frame.locator('input[placeholder*="文件夹名称"]').first().isVisible({ timeout: 200 }).catch(() => false);
+      if (frameSearch) return true;
+    }
+    return false;
+  };
+
+  if (!await isPickerOpen()) return;
+
+  logger.warn('⚠️ 检测到选图弹窗未关闭，尝试点击空白/基础信息关闭...');
+
+  const basicInfoSelectors = [
+    'li.next-menu-item:has-text("基础信息")',
+    'li.next-nav-item:has-text("基础信息")',
+    '.next-tabs-tab:has-text("基础信息")',
+    '[role="tab"]:has-text("基础信息")',
+    'text=基础信息'
+  ];
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (!await isPickerOpen()) return;
+
+      await closeAllPopups(page, 1).catch(() => {});
+    await page.waitForTimeout(500);
+
+      for (const selector of basicInfoSelectors) {
+        const tab = page.locator(selector).first();
+        if (await tab.isVisible({ timeout: 200 }).catch(() => false)) {
+          await tab.click({ force: true, timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(400);
+        break;
+      }
+    }
+
+    await page.mouse.click(10, 10).catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
+  if (await isPickerOpen()) {
+    logger.warn('⚠️ 选图弹窗仍未关闭，请人工点击空白处/基础信息关闭后再重试');
+  }
+}
 
 /**
  * 进入销售信息区域（滚动到该区域）
@@ -642,6 +699,7 @@ const step4 = async (ctx) => {
       // 男店配置
       const maleDefault = process.env.TEMPLATE_ITEM_ID_MALE || process.env.TEMPLATE_ITEM_ID ||
         (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
+      const malePing = '921175768835';
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
@@ -650,6 +708,8 @@ const step4 = async (ctx) => {
       const maleJackBunny = process.env.TEMPLATE_ITEM_ID_JACK_BUNNY || '999041650653';
       // 女店配置
       const femaleDefault = process.env.TEMPLATE_ITEM_ID_FEMALE || '963409414097';
+      const femalePing = '868813535649';
+      const femaleMizuno = '865656530519';
       const femalePearly = process.env.TEMPLATE_ITEM_ID_FEMALE_PEARLY_GATES || '962546682844';
       const femaleMunsing = process.env.TEMPLATE_ITEM_ID_FEMALE_MUNSINGWEAR || '895577432419';
       const femaleLeCoq = process.env.TEMPLATE_ITEM_ID_FEMALE_LECOQ || '927659846575';
@@ -657,18 +717,24 @@ const step4 = async (ctx) => {
       const femaleMasterBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_MASTER_BUNNY || '998750666072';
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
 
-      if (store === 'female') {
-      if (brandKey === 'pearly gates') return femalePearly;
-      if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
-      if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
-      if (brandKey.includes('movesport')) return femaleMoveSport;
-      if (brandKey.includes('jackbunny') || brandKey.includes('jack bunny')) return femaleJackBunny;
-      if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
-      return femaleDefault;
-    }
+      const isPing = brandKey.includes('ping');
+      const isMizuno = brandKey.includes('mizuno') || brandKey.includes('美津浓');
 
-    // 默认男店
-    if (brandKey === 'pearly gates') return malePearly;
+      if (store === 'female') {
+        if (isPing) return femalePing;
+        if (isMizuno) return femaleMizuno;
+        if (brandKey === 'pearly gates') return femalePearly;
+        if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
+        if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
+        if (brandKey.includes('movesport')) return femaleMoveSport;
+        if (brandKey.includes('jackbunny') || brandKey.includes('jack bunny')) return femaleJackBunny;
+        if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
+        return femaleDefault;
+      }
+
+      // 默认男店
+      if (isPing) return malePing;
+      if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
       if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return maleLeCoq;
       if (brandKey.includes('movesport')) return maleMoveSport;
@@ -723,6 +789,8 @@ const step4 = async (ctx) => {
       ctx.logger.warn('发布页面未达到完全空闲状态，但继续执行');
     }
     await page1.waitForTimeout(800);
+    await dismissMaterialPickerIfAny(page1, ctx.logger);
+    await closeAllPopups(page1, 2).catch(() => {});
 
     // 验证页面是否正确加载
     const pageTitle = await page1.title();
