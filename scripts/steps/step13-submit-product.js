@@ -268,10 +268,7 @@ const step13 = async (ctx) => {
         const backBtnTextVariants = [
           'button:has-text("返回修改")',
           'button:has-text("返回编辑")',
-          'button:has-text("修改")',
-          'button:has-text("返回")',
-          '.next-btn:has-text("返回")',
-          '.next-btn:has-text("修改")'
+          // 重要：不要使用过于宽泛的“返回/修改”按钮匹配，避免误点“返回旧版图文描述”等非违规弹窗按钮
         ];
 
         let globalBackBtn = null;
@@ -662,7 +659,7 @@ const step13 = async (ctx) => {
 
       try {
         await feishuClient.updateRecord(feishuRecordId, updateFields);
-        ctx.logger.success(`✅ 飞书状态已更新为"${doneValue}"`);
+        ctx.logger.success(`✅ 飞书状态已更新为"${updateFields[statusField]}"`);
       } catch (updateError) {
         ctx.logger.error(`更新飞书状态失败: ${updateError.message}`);
       }
@@ -688,7 +685,12 @@ const step13 = async (ctx) => {
 
     // 输出总结
     ctx.logger.success('\n=== 商品提交完成 ===');
-    ctx.logger.info(`提交状态: ${submitResult.status === 'success' ? '✅ 成功' : '⚠️ 未知'}`);
+    const statusLabel = submitResult.status === 'success'
+      ? '✅ 成功'
+      : submitResult.status === 'draft'
+        ? '⚠️ 草稿'
+        : '⚠️ 未知';
+    ctx.logger.info(`提交状态: ${statusLabel}`);
     ctx.logger.info(`提交信息: ${submitResult.message}`);
 
     // 只有明确失败时才抛错，成功或未知状态都不抛错
