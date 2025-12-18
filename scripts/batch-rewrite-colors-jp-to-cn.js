@@ -44,7 +44,7 @@ function mapLinePreserveWhitespace(line) {
   const key = line.trim();
 
   const mapped = COLOR_MAPPING_JP_TO_CN[key];
-  if (!mapped) return { value: line, changed: false };
+  if (!mapped || mapped === key) return { value: line, changed: false };
 
   return { value: `${leading}${mapped}${trailing}`, changed: true };
 }
@@ -194,4 +194,3 @@ main().catch((error) => {
   console.error('[colors] Failed:', error.message);
   process.exit(1);
 });
-
