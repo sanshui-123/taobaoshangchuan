@@ -1,0 +1,77 @@
+const COLOR_MAPPING_JP_TO_CN = Object.freeze({
+  'ライトイエロー': '浅黄色',
+  'レオパード': '豹纹',
+  'ブラック×グレー': '黑色×灰色',
+  'ピンク×ホワイト': '粉色×白色',
+  'ホワイト×ブラウン': '白色×棕色',
+  'ブラウン×レオパード': '棕色×豹纹',
+  'ネイビー×アイボリー': '藏青色×象牙白',
+  'キャメル': '驼色',
+  'テラコッタ': '陶土色',
+  'ホワイト×ゴールド': '白色×金色',
+  'ライトパープル': '浅紫色',
+  'キャロット': '胡萝卜色',
+  'ミルク': '奶白色',
+  'パンプキン': '南瓜色',
+  'ヘザーグレー': '麻灰色',
+  'ダークベージュ': '深米色',
+  'アッシュグレー': '烟灰色',
+  'インディゴ': '靛蓝色',
+  'ワイン': '酒红色',
+  'スモークブルー': '烟蓝色',
+  'イエロー×パープル': '黄色×紫色',
+  'アイアングレー': '铁灰色',
+  'オリーブグリーン': '橄榄绿'
+});
+
+const normalizeColorKey = (value) => (value || '').toString().trim();
+
+const mapColorKeyToCN = (colorKey) => {
+  const key = normalizeColorKey(colorKey);
+  if (!key) return colorKey;
+  return COLOR_MAPPING_JP_TO_CN[key] || colorKey;
+};
+
+const mapColorValueToCN = (colorValue) => {
+  if (typeof colorValue === 'string') {
+    return mapColorKeyToCN(colorValue);
+  }
+
+  if (colorValue && typeof colorValue === 'object') {
+    let changed = false;
+    const next = { ...colorValue };
+
+    if (typeof next.colorName === 'string') {
+      const mapped = mapColorKeyToCN(next.colorName);
+      if (mapped !== next.colorName) {
+        next.colorName = mapped;
+        changed = true;
+      }
+    }
+
+    if (typeof next.text === 'string') {
+      const mapped = mapColorKeyToCN(next.text);
+      if (mapped !== next.text) {
+        next.text = mapped;
+        changed = true;
+      }
+    }
+
+    return changed ? next : colorValue;
+  }
+
+  return colorValue;
+};
+
+const mapColorsToCN = (colors) => {
+  if (!Array.isArray(colors)) return colors;
+  return colors.map(mapColorValueToCN);
+};
+
+module.exports = {
+  COLOR_MAPPING_JP_TO_CN,
+  mapColorKeyToCN,
+  mapColorValueToCN,
+  mapColorsToCN
+};
+

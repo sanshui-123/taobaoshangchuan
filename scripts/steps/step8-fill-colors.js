@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache } = require('../utils/cache');
 const { feishuClient } = require('../feishu/client');
+const { mapColorKeyToCN } = require('../utils/color-mapping');
 
 /**
  * 步骤8：填写颜色
@@ -83,7 +84,15 @@ const step8 = async (ctx) => {
 
     for (let i = 0; i < Math.min(colors.length, colorCount); i++) {
       const color = colors[i];
-      const colorName = color.colorName || `颜色${i + 1}`;
+      const rawColorName = (() => {
+        if (!color) return '';
+        if (typeof color === 'string') return color;
+        if (typeof color === 'object') {
+          return color.colorName || color.text || '';
+        }
+        return '';
+      })();
+      const colorName = mapColorKeyToCN(rawColorName) || `颜色${i + 1}`;
 
       ctx.logger.info(`填写颜色 ${i + 1}: ${colorName}`);
 

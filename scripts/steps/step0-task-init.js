@@ -1,6 +1,7 @@
 const { feishuClient } = require('../feishu/client');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const { checkProductExists } = require('../utils/taobao-check');
+const { mapColorsToCN } = require('../utils/color-mapping');
 const fs = require('fs');
 const path = require('path');
 
@@ -545,7 +546,7 @@ async function processRecord(record, ctx, opts = {}) {
     category: categoryValue,
     gender: genderValue,
     images: getImageUrls(fields, process.env.FEISHU_IMAGE_FIELD || '图片URL'),
-    colors: getMultiValueField(fields, process.env.FEISHU_COLOR_FIELD || '颜色'),
+    colors: mapColorsToCN(getMultiValueField(fields, process.env.FEISHU_COLOR_FIELD || '颜色')),
     sizes: getMultiValueField(fields, process.env.FEISHU_SIZE_FIELD || '尺码'),
     sizeTable: getFieldValue(fields, process.env.FEISHU_SIZE_TABLE_FIELD || '尺码表')
   };
