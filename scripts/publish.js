@@ -67,6 +67,7 @@ program
   .option('--category <name>', '只处理指定品类')
   .option('--gender <name>', '只处理指定性别')
   .option('--no-material-upload', '跳过 Step3.5 素材库上传（用于复跑后续步骤）')
+  .option('--force-step5', '强制重跑 Step5 主图上传（即使缓存已 done）')
   .option('--force-partial', '即便素材上传失败也强制回写“前三步已更新”')
   .option('--allow-done', '允许拉取已完成/失败/空状态记录（默认会过滤）');
 

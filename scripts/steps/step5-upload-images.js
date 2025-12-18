@@ -549,7 +549,8 @@ async function clickBasicInfoTab(page, ctx) {
  * 尝试关闭素材库选图弹窗（不依赖“确定”按钮）
  * @returns {Promise<boolean>}
  */
-async function closeMaterialPickerWithRetry(page, workingLocator, ctx, productId) {
+async function closeMaterialPickerWithRetry(page, workingLocator, ctx, productId, options = {}) {
+  const preferBlankClose = !!options.preferBlankClose;
   const maxAttempts = 3;
 
   const tryClickMaskInRoot = async (root) => {
@@ -632,12 +633,22 @@ async function closeMaterialPickerWithRetry(page, workingLocator, ctx, productId
 
     // 1) 优先在已命中的 iframe 上下文里点关闭/点遮罩/点空白
     if (workingLocator) {
-      await tryClickCloseInRoot(workingLocator).catch(() => {});
-      if (await isMaterialPickerOpen(page, ctx)) {
+      if (preferBlankClose) {
         await tryClickMaskInRoot(workingLocator).catch(() => {});
-      }
-      if (await isMaterialPickerOpen(page, ctx)) {
-        await tryClickBlankInRoot(workingLocator).catch(() => {});
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickBlankInRoot(workingLocator).catch(() => {});
+        }
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickCloseInRoot(workingLocator).catch(() => {});
+        }
+      } else {
+        await tryClickCloseInRoot(workingLocator).catch(() => {});
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickMaskInRoot(workingLocator).catch(() => {});
+        }
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickBlankInRoot(workingLocator).catch(() => {});
+        }
       }
     }
 
@@ -646,27 +657,45 @@ async function closeMaterialPickerWithRetry(page, workingLocator, ctx, productId
       const iframeCount = await page.locator('iframe').count().catch(() => 0);
       for (let i = 0; i < iframeCount; i++) {
         const frameRoot = page.frameLocator('iframe').nth(i);
-        await tryClickCloseInRoot(frameRoot).catch(() => {});
-        if (await isMaterialPickerOpen(page, ctx)) {
+        if (preferBlankClose) {
           await tryClickMaskInRoot(frameRoot).catch(() => {});
-        }
-        if (await isMaterialPickerOpen(page, ctx)) {
-          await tryClickBlankInRoot(frameRoot).catch(() => {});
+          if (await isMaterialPickerOpen(page, ctx)) {
+            await tryClickBlankInRoot(frameRoot).catch(() => {});
+          }
+          if (await isMaterialPickerOpen(page, ctx)) {
+            await tryClickCloseInRoot(frameRoot).catch(() => {});
+          }
+        } else {
+          await tryClickCloseInRoot(frameRoot).catch(() => {});
+          if (await isMaterialPickerOpen(page, ctx)) {
+            await tryClickMaskInRoot(frameRoot).catch(() => {});
+          }
+          if (await isMaterialPickerOpen(page, ctx)) {
+            await tryClickBlankInRoot(frameRoot).catch(() => {});
+          }
         }
         if (!await isMaterialPickerOpen(page, ctx)) break;
       }
     }
 
-    // 3) 主页面上尝试点关闭
+    // 3) 主页面上尝试关闭（preferBlankClose 时优先遮罩/空白，避免误触“取消/返回”导致选中失效）
     if (await isMaterialPickerOpen(page, ctx)) {
-      await tryClickCloseInRoot(page).catch(() => {});
-    }
-
-    // 4) 主页面点击遮罩/空白处关闭（部分版本支持）
-    if (await isMaterialPickerOpen(page, ctx)) {
-      await tryClickMaskInRoot(page).catch(() => {});
-      if (await isMaterialPickerOpen(page, ctx)) {
-        await tryClickBlankInRoot(page).catch(() => {});
+      if (preferBlankClose) {
+        await tryClickMaskInRoot(page).catch(() => {});
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickBlankInRoot(page).catch(() => {});
+        }
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickCloseInRoot(page).catch(() => {});
+        }
+      } else {
+        await tryClickCloseInRoot(page).catch(() => {});
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickMaskInRoot(page).catch(() => {});
+        }
+        if (await isMaterialPickerOpen(page, ctx)) {
+          await tryClickBlankInRoot(page).catch(() => {});
+        }
       }
     }
 
@@ -717,17 +746,42 @@ const step5 = async (ctx) => {
       throw new Error('未找到发布页面，请先执行步骤4');
     }
 
-    const page = ctx.page1;
-    const productId = ctx.productId;
+	    const page = ctx.page1;
+	    const productId = ctx.productId;
 
-  // 加载缓存获取商品信息
-  const taskCache = loadTaskCache(productId);
-  if (!taskCache.productData || !taskCache.productData.colors) {
-    throw new Error('缓存中没有商品颜色信息');
-  }
+	  // 加载缓存获取商品信息
+	  const taskCache = loadTaskCache(productId);
+	  if (!taskCache.productData || !taskCache.productData.colors) {
+	    throw new Error('缓存中没有商品颜色信息');
+	  }
 
-  // 如果 Step0 已标记前三步完成（skipPhaseA），直接跳过主图上传，避免重复
-  // 如果希望强制重跑 Step5，即使标记了 skipPhaseA，也继续执行
+	  // 避免阶段重试/批量脚本导致重复上传：如果缓存已标记 Step5 done 且未显式要求重跑，则直接返回
+	  const forceStep5 = !!(ctx.options && ctx.options.forceStep5);
+	  const prevStatus = (taskCache.stepStatus && taskCache.stepStatus[5]) || '';
+	  if (prevStatus === 'done' && !forceStep5) {
+	    ctx.logger.info('⏭️ 检测到 Step5 已完成，跳过主图上传（如需重跑请加 --force-step5）');
+	    return;
+	  }
+
+	  // 防御：重试/手动切页后 page1 可能不在发布页，优先尝试回到 Step4 保存的 publishPageUrl
+	  try {
+	    await page.bringToFront().catch(() => {});
+	    const publishPageUrl = taskCache?.browserContext?.publishPageUrl;
+	    const currentUrl = page.url();
+	    const looksLikePublish = /\/sell\/v2\/publish|publish\.htm/i.test(currentUrl);
+	    if (publishPageUrl && !looksLikePublish) {
+	      ctx.logger.warn(`⚠️ 当前页面可能不是发布页（${currentUrl}），尝试回到发布页: ${publishPageUrl}`);
+	      const timeout = parseInt(process.env.TAOBAO_TIMEOUT || '30000');
+	      await page.goto(publishPageUrl, { waitUntil: 'domcontentloaded', timeout }).catch(() => {});
+	      await page.waitForTimeout(800);
+	    }
+	    await closeAllPopups(page, 2).catch(() => {});
+	  } catch (e) {
+	    // ignore
+	  }
+
+	  // 如果 Step0 已标记前三步完成（skipPhaseA），直接跳过主图上传，避免重复
+	  // 如果希望强制重跑 Step5，即使标记了 skipPhaseA，也继续执行
 
   // 注释掉自动跳过逻辑,允许重新执行 Step5 进行测试
   // 如果之前已经完成过 Step5，则直接跳过，避免重复上传
@@ -781,14 +835,14 @@ const step5 = async (ctx) => {
     await page.waitForTimeout(1000);
     ctx.logger.success('✅ 已滚动到顶部（双保险）');
 
-    // 保存调试截图（查看滚动后的页面状态）
-    try {
-      const debugScreenshot = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_before_click.png';
-      await page.screenshot({ path: debugScreenshot, fullPage: false });
-      ctx.logger.info(`📸 调试截图: ${debugScreenshot}`);
-    } catch (e) {
-      ctx.logger.warn('调试截图失败');
-    }
+	    // 保存调试截图（查看滚动后的页面状态）
+	    try {
+	      const debugScreenshot = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_before_click.png';
+	      await page.screenshot({ path: debugScreenshot, fullPage: false, timeout: 10000 });
+	      ctx.logger.info(`📸 调试截图: ${debugScreenshot}`);
+	    } catch (e) {
+	      ctx.logger.warn('调试截图失败');
+	    }
 
     // 步骤2：禁用其他上传位，防止误点击
     ctx.logger.info('\n[步骤2] 禁用其他上传位');
@@ -907,13 +961,18 @@ const step5 = async (ctx) => {
     ctx.logger.info('等待弹窗开始出现...');
     await page.waitForTimeout(800);  // 缩短固定等待
 
-    // 调试截图：查看点击后的状态
-    const debugScreenshotAfter = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click.png';
-    await page.screenshot({
-      path: debugScreenshotAfter,
-      fullPage: false
-    });
-    ctx.logger.info(`📸 点击后调试截图: ${debugScreenshotAfter}`);
+	    // 调试截图：查看点击后的状态
+	    try {
+	      const debugScreenshotAfter = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click.png';
+	      await page.screenshot({
+	        path: debugScreenshotAfter,
+	        fullPage: false,
+	        timeout: 10000
+	      });
+	      ctx.logger.info(`📸 点击后调试截图: ${debugScreenshotAfter}`);
+	    } catch (e) {
+	      ctx.logger.warn(`调试截图失败（但不影响流程）: ${e.message}`);
+	    }
 
     // 再次滚动到顶部，防止弹窗打开时页面跳动
     await scrollToTop();
@@ -1055,13 +1114,18 @@ const step5 = async (ctx) => {
       // 额外等待300ms确保动画完成
       await page.waitForTimeout(300);
 
-      // 调试截图：查看文件夹打开后的状态
-      const debugScreenshotFolder = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_folder_opened.png';
-      await page.screenshot({
-        path: debugScreenshotFolder,
-        fullPage: false
-      });
-      ctx.logger.info(`  📸 文件夹打开后截图: ${debugScreenshotFolder}`);
+	      // 调试截图：查看文件夹打开后的状态
+	      try {
+	        const debugScreenshotFolder = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_folder_opened.png';
+	        await page.screenshot({
+	          path: debugScreenshotFolder,
+	          fullPage: false,
+	          timeout: 10000
+	        });
+	        ctx.logger.info(`  📸 文件夹打开后截图: ${debugScreenshotFolder}`);
+	      } catch (e) {
+	        ctx.logger.warn(`  调试截图失败（但不影响流程）: ${e.message}`);
+	      }
 
     } catch (searchError) {
       // 方案B：搜索失败时，使用左侧文件夹树
@@ -1287,17 +1351,17 @@ const step5 = async (ctx) => {
       );
 	      ctx.logger.success(`✅ 已选择 ${selectedCount} 张图片`);
 
-	      // ==================== 确认选图并关闭素材库弹窗 ====================
-	      ctx.logger.info('\n[步骤6.5] 确认选图结果并关闭素材库弹窗');
+		      // ==================== 确认选图并关闭素材库弹窗 ====================
+		      ctx.logger.info('\n[步骤6.5] 确认选图结果并关闭素材库弹窗');
 
-	      // 先尝试常规“确定/完成/主按钮”
-	      await confirmMaterialPickerWithRetry(page, uploadLocator, ctx, productId);
+		      // 先尝试常规“确定/完成/主按钮”
+		      const confirmed = await confirmMaterialPickerWithRetry(page, uploadLocator, ctx, productId);
 
-	      // 如果未自动关闭（常见于：未满5张/无确定按钮/需要失焦），按“点空白/基础信息”方式强制收起
-	      if (await isMaterialPickerOpen(page, ctx)) {
-	        ctx.logger.warn('  ⚠️ 弹窗仍未关闭，尝试点击空白/基础信息以收起...');
-	        await closeMaterialPickerWithRetry(page, uploadLocator, ctx, productId);
-	      }
+		      // 如果未自动关闭（常见于：未满5张/无确定按钮/需要失焦），按“点空白/基础信息”方式强制收起
+		      if (await isMaterialPickerOpen(page, ctx)) {
+		        ctx.logger.warn('  ⚠️ 弹窗仍未关闭，尝试点击空白/基础信息以收起...');
+		        await closeMaterialPickerWithRetry(page, uploadLocator, ctx, productId, { preferBlankClose: !confirmed });
+		      }
 
 	      if (await isMaterialPickerOpen(page, ctx)) {
 	        throw new Error('素材库弹窗仍未关闭（可手动点击空白处/基础信息/右上角关闭后重试）');
@@ -1800,13 +1864,14 @@ async function applyFallbackStrategy(page, productId, ctx) {
     // 尝试清理遮挡弹窗（重要消息/通知等）
     await closeAllPopups(page, 2).catch(() => {});
 
-    // 仍在选图弹窗中：再试一次确认/关闭
-    if (await isMaterialPickerOpen(page, ctx)) {
-      if (working) {
-        await confirmMaterialPickerWithRetry(page, working, ctx, productId).catch(() => {});
-      }
-      await closeMaterialPickerWithRetry(page, working, ctx, productId).catch(() => {});
-    }
+	    // 仍在选图弹窗中：再试一次确认/关闭
+	    if (await isMaterialPickerOpen(page, ctx)) {
+	      if (working) {
+	        const confirmed = await confirmMaterialPickerWithRetry(page, working, ctx, productId).catch(() => false);
+	        await closeMaterialPickerWithRetry(page, working, ctx, productId, { preferBlankClose: !confirmed }).catch(() => {});
+	      }
+	      await closeMaterialPickerWithRetry(page, working, ctx, productId, { preferBlankClose: true }).catch(() => {});
+	    }
 
     const mainImagesAfter = await waitForMainImagesFilled(page, ctx, 10000);
     if (!mainImagesAfter) {
