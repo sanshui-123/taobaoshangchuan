@@ -1542,8 +1542,9 @@ function pickIndexLast(k, imageCount) {
 
 /**
  * 根据颜色数智能选择图片
- * 新规则：统一点击5张，每一击根据颜色数决定点击倒数/正数第几个元素
- * Le Coq品牌特例：从最后往前取5张
+ * 新规则：
+ * - 默认：从最后往前依次点击 5 张（last1~last5）
+ * - 卡拉威（Callaway）特例：保持“跳点点击”（原颜色策略）以匹配其素材分布
  * @param {Locator} uploadFrame - 上传弹窗的定位器（iframe或page）
  * @param {number} imageCount - 图片总数
  * @param {number} colorCount - 颜色数量
@@ -1562,6 +1563,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
   ctx.logger.info(`  总图片数: ${imageCount}`);
 
   const brandKey = (brand || '').trim().toLowerCase();
+  const isCallaway = brandKey.includes('callaway') || (brand || '').includes('卡拉威');
 
   // 统一使用 locator nth + hoverBK 点击，避免“点击卡片只会单选/预览”导致只选中1张
   const cardSel = imageCardSelector || '.PicList_pic_background__pGTdV';
@@ -1601,11 +1603,9 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     return true;
   };
 
-  // ========== 品牌特例：倒序取5张 ==========
-  const specialBrands = ['le coq公鸡乐卡克', 'pearly gates', '万星威munsingwear', 'munsingwear', 'taylormade泰勒梅', 'ping', 'mizuno', '美津浓'];
-  const isSpecialBrand = specialBrands.includes(brandKey) || brandKey.includes('movesport') || (brandKey.includes('master') && brandKey.includes('bunny')) || brandKey.includes('ping') || brandKey.includes('mizuno') || brandKey.includes('美津浓');
-  if (isSpecialBrand) {
-    ctx.logger.info(`  ✨ 品牌特例(${brand})：直接从最后往前取 5 张主图\n`);
+  // ========== 默认：倒序取5张（last1~last5）==========
+  if (!isCallaway) {
+    ctx.logger.info(`  ✅ 默认规则(${brand || '未知品牌'}): 直接从最后往前取 5 张主图\n`);
 
     // 确定要选择的图片数量（最多5张，如果少于5张则全取）
     const selectCount = Math.min(5, totalCards);
@@ -1647,12 +1647,12 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    ctx.logger.info(`\n✅ 品牌特例图片选择完成：成功 ${selectedCount}/${selectCount} 张\n`);
+    ctx.logger.info(`\n✅ 默认规则图片选择完成：成功 ${selectedCount}/${selectCount} 张\n`);
     return selectedCount;
   }
 
-  // ========== 其他品牌：使用原有颜色策略 ==========
-  ctx.logger.info(`  规则: 固定5次点击，根据颜色数智能选择索引\n`);
+  // ========== 卡拉威：跳点点击（原颜色策略）==========
+  ctx.logger.info(`  ✨ 卡拉威特例(${brand}): 维持跳点点击（固定5次点击，根据颜色数智能选择索引）\n`);
 
   ctx.logger.info(`  📦 使用选择器 "${cardSel}"（total=${totalCards}）\n`);
 
@@ -1661,7 +1661,7 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     // 第1张：始终 last(1)
     {
       name: '第1张',
-      getIndex: () => pickIndexLast(1, imageCount),
+      getIndex: () => pickIndexLast(1, totalCards),
       getRuleName: () => 'last(1)'
     },
 
@@ -1669,8 +1669,8 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     {
       name: '第2张',
       getIndex: () => {
-        if (colorCount >= 2) return pickIndexFirst(6, imageCount);
-        else return pickIndexLast(2, imageCount);
+        if (colorCount >= 2) return pickIndexFirst(6, totalCards);
+        else return pickIndexLast(2, totalCards);
       },
       getRuleName: () => colorCount >= 2 ? 'first(6)' : 'last(2)'
     },
@@ -1679,9 +1679,9 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     {
       name: '第3张',
       getIndex: () => {
-        if (colorCount === 2) return pickIndexLast(2, imageCount);
-        else if (colorCount >= 3) return pickIndexFirst(12, imageCount);
-        else return pickIndexLast(3, imageCount);  // colorCount === 1
+        if (colorCount === 2) return pickIndexLast(2, totalCards);
+        else if (colorCount >= 3) return pickIndexFirst(12, totalCards);
+        else return pickIndexLast(3, totalCards);  // colorCount === 1
       },
       getRuleName: () => {
         if (colorCount === 2) return 'last(2)';
@@ -1694,10 +1694,10 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     {
       name: '第4张',
       getIndex: () => {
-        if (colorCount === 2) return pickIndexFirst(5, imageCount);
-        else if (colorCount === 3) return pickIndexLast(2, imageCount);
-        else if (colorCount >= 4) return pickIndexFirst(18, imageCount);
-        else return pickIndexLast(4, imageCount);  // colorCount === 1
+        if (colorCount === 2) return pickIndexFirst(5, totalCards);
+        else if (colorCount === 3) return pickIndexLast(2, totalCards);
+        else if (colorCount >= 4) return pickIndexFirst(18, totalCards);
+        else return pickIndexLast(4, totalCards);  // colorCount === 1
       },
       getRuleName: () => {
         if (colorCount === 2) return 'first(5)';
@@ -1711,12 +1711,12 @@ async function selectImagesByRules(uploadFrame, imageCount, colorCount, brand, p
     {
       name: '第5张',
       getIndex: () => {
-        if (colorCount === 1) return pickIndexLast(5, imageCount);
-        else if (colorCount === 2) return pickIndexLast(3, imageCount);
-        else if (colorCount === 3) return pickIndexFirst(5, imageCount);
-        else if (colorCount === 4) return pickIndexFirst(24, imageCount);
-        else if (colorCount === 5) return pickIndexFirst(30, imageCount);
-        else return pickIndexFirst(30, imageCount);  // colorCount >= 6
+        if (colorCount === 1) return pickIndexLast(5, totalCards);
+        else if (colorCount === 2) return pickIndexLast(3, totalCards);
+        else if (colorCount === 3) return pickIndexFirst(5, totalCards);
+        else if (colorCount === 4) return pickIndexFirst(24, totalCards);
+        else if (colorCount === 5) return pickIndexFirst(30, totalCards);
+        else return pickIndexFirst(30, totalCards);  // colorCount >= 6
       },
       getRuleName: () => {
         if (colorCount === 1) return 'last(5)';
