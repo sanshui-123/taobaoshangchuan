@@ -3,14 +3,13 @@ const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 
 /**
- * 步骤8：填写商品编码和基础信息
+ * 步骤7：填写商品编码和基础信息
  * 1. 销售信息 → 商家编码
  * 2. 基础信息 → 货号
- * 3. 基础信息 → 适用性别（根据标题识别性别，选择"男"或"女"）
  */
 
 const step7 = async (ctx) => {
-  ctx.logger.info('开始填写商品编码和基础信息（商家编码+货号+适用性别）');
+  ctx.logger.info('开始填写商品编码和基础信息（商家编码+货号）');
 
   // 创建心跳定时器
   const heartbeat = setInterval(() => {
@@ -254,87 +253,14 @@ const step7 = async (ctx) => {
     }
 
     // ============================================
-    // 步骤3：填写"适用性别"
+    // 步骤3：更新缓存
     // ============================================
-    // 高尔夫球服/MoveSport/Master Bunny 品牌跳过性别填写
-    if ((categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand || isMasterBunnyBrand) {
-      ctx.logger.info('  ℹ️ 类目为高尔夫球服或 MoveSport/Master Bunny 品牌，按规则跳过适用性别填写');
-      return;
-    }
-
-    ctx.logger.info('\n[步骤3] 填写适用性别');
-
-    // 从缓存优先读取性别（飞书字段）
-    // taskCache 已在函数开头（第28行）声明，直接使用
-    let targetGender = normalizeGender(
-      taskCache?.productData?.gender ||
-      taskCache?.productData?.targetAudience
-    );
-
-    // 如果缓存中没有，尝试从标题中识别
-    if (!targetGender) {
-      const title = taskCache?.productData?.titleCN || taskCache?.productData?.title || '';
-      ctx.logger.info(`  从标题智能识别性别: ${title}`);
-
-      if (title.includes('男士') || title.includes('男款') || title.includes('男子') || title.includes('MEN')) {
-        targetGender = '男';
-      } else if (title.includes('女士') || title.includes('女款') || title.includes('女子') || title.includes('WOMEN')) {
-        targetGender = '女';
-      } else {
-        ctx.logger.info('  ⚠️ 无法从标题识别性别，默认为"男"');
-        targetGender = '男';  // 默认为男
-      }
-    }
-
-    ctx.logger.info(`  目标性别: ${targetGender}`);
-
-    // 定位适用性别字段（使用ID定位 - 最稳定）
-    ctx.logger.info('  定位适用性别字段...');
-
-    const genderField = page.locator('#sell-field-p-573325695');
-    const genderInput = genderField.locator('span.next-select-values');
-
-    // 滚动到视口
-    await genderInput.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(300);
-
-    // 点击触发下拉面板
-    ctx.logger.info('  点击适用性别选择框...');
-    await genderInput.click({ force: true });
-    await page.waitForTimeout(600);
-
-    // 等待下拉面板出现
-    ctx.logger.info('  等待下拉面板出现...');
-    const dropdownPanel = page.locator('div.sell-o-select-options');
-    await dropdownPanel.waitFor({ state: 'visible', timeout: 5000 });
-    ctx.logger.success('  ✅ 下拉面板已展开');
-
-    // 选择目标性别选项（使用精确匹配，避免"男"匹配到"男女通用"）
-    ctx.logger.info(`  选择性别: ${targetGender}`);
-    const option = dropdownPanel.getByText(targetGender, { exact: true });
-    await option.click();
-    await page.waitForTimeout(800);
-
-    // 验证选择结果
-    const selectedValue = await genderInput.textContent();
-    ctx.logger.info(`  适用性别选择框值: ${selectedValue}`);
-
-    if (selectedValue && selectedValue.includes(targetGender)) {
-      ctx.logger.success(`✅ 适用性别验证成功: ${selectedValue}`);
-    } else {
-      ctx.logger.warn(`⚠️ 适用性别可能未正确选择: 期望"${targetGender}"，实际"${selectedValue}"`);
-    }
-
-    // ============================================
-    // 步骤4：更新缓存
-    // ============================================
-    ctx.logger.info('\n[步骤4] 更新缓存');
+    ctx.logger.info('\n[步骤3] 更新缓存');
 
     const taskCacheFinal = loadTaskCache(productId);
     if (taskCacheFinal) {
       taskCacheFinal.merchantCode = merchantCodeValue;
       taskCacheFinal.skuCode = skuValue;
-      taskCacheFinal.gender = targetGender;
       saveTaskCache(productId, taskCacheFinal);
       ctx.logger.success('商品编码和基础信息已保存到缓存');
     }
@@ -342,7 +268,6 @@ const step7 = async (ctx) => {
     ctx.logger.info('\n=== 商品编码和基础信息填写完成 ===');
     ctx.logger.info(`商家编码: ${merchantCodeValue}`);
     ctx.logger.info(`货号: ${skuValue}`);
-    ctx.logger.info(`适用性别: ${targetGender}`);
 
     clearInterval(heartbeat);
 
@@ -353,21 +278,5 @@ const step7 = async (ctx) => {
     throw error;
   }
 };
-
-/**
- * 规范化性别值，返回 '男' / '女'，未知返回空字符串
- */
-function normalizeGender(value) {
-  if (!value) return '';
-  const text = Array.isArray(value) ? (value[0] || '') : String(value);
-  const lower = text.toLowerCase();
-  if (text.includes('女') || lower.includes('women') || lower.includes('lady') || lower.includes('female')) {
-    return '女';
-  }
-  if (text.includes('男') || lower.includes('men') || lower.includes('male')) {
-    return '男';
-  }
-  return '';
-}
 
 module.exports = { step7 };
