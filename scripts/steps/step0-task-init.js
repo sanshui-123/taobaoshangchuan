@@ -350,8 +350,9 @@ async function processRecord(record, ctx, opts = {}) {
           [statusField]: doneValue
         });
 
-        // 更新步骤状态并跳过后续步骤
-        updateStepStatus(productId, 0, 'done');
+        // 🛡️ 重要：商品已存在则无需执行后续步骤，直接标记全部步骤为 skipped
+        // 否则 publish.js 仍会继续跑 Step1（会因缓存无图片信息而失败并触发阶段A重试）
+        markAllSkipped(productId);
         ctx.logger.success('✅ 商品已存在，跳过上传流程');
         return;
       } else {
