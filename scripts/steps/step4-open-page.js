@@ -231,10 +231,13 @@ async function clickButtonInSalesArea(page, buttonText, logger) {
 }
 
 /**
- * 应用通用模板
+ * 应用销售属性模板（默认：通用模版）
  */
-async function applyGeneralTemplate(page, logger) {
-  logger.info('\n[步骤2] 应用通用模板');
+async function applyGeneralTemplate(page, logger, options = {}) {
+  const templateName = (options.templateName || '通用模版').trim();
+  const templateMatcher = new RegExp(templateName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+  logger.info(`\n[步骤2] 应用销售属性模板（${templateName}）`);
 
   // 等待销售信息区域加载
   await page.waitForTimeout(1000);
@@ -247,17 +250,17 @@ async function applyGeneralTemplate(page, logger) {
     logger.info('  检测到已有颜色分类，模板可能已应用');
 
     // 检查是否需要切换模板
-    const templateText = page.locator('text=通用模版');
+    const templateText = page.locator('#sale-card').getByText(templateMatcher).first();
     const hasTemplate = await templateText.isVisible().catch(() => false);
 
     if (hasTemplate) {
-      logger.info('  ✅ 通用模版已应用');
+      logger.info(`  ✅ 模板已应用: ${templateName}`);
       return;
     }
   }
 
-  // 方法1：直接点击"通用模版"文本（如果已显示在界面上）
-  let selected = await clickButtonInSalesArea(page, '通用模版', logger);
+  // 方法1：直接点击模板文本（如果已显示在界面上）
+  let selected = await clickButtonInSalesArea(page, templateName, logger);
 
   if (!selected) {
     // 方法2：点击"模板"按钮打开下拉菜单
@@ -268,23 +271,23 @@ async function applyGeneralTemplate(page, logger) {
     if (templateClicked) {
       await page.waitForTimeout(1000);
 
-      // 等待下拉菜单出现并选择"通用模版"
+      // 等待下拉菜单出现并选择目标模板
       const optionLocator = page.locator('.next-menu-item, li[role="option"], [class*="menu-item"]')
-        .filter({ hasText: '通用模版' }).first();
+        .filter({ hasText: templateMatcher }).first();
       const optionExists = await optionLocator.count();
 
       if (optionExists > 0) {
         await optionLocator.click();
         selected = true;
-        logger.info('  从下拉菜单选择通用模版');
+        logger.info(`  从下拉菜单选择模板: ${templateName}`);
       } else {
         // 尝试 getByText
-        const textOption = page.getByText('通用模版', { exact: false }).first();
+        const textOption = page.getByText(templateMatcher).first();
         const textExists = await textOption.count();
         if (textExists > 0) {
           await textOption.click();
           selected = true;
-          logger.info('  使用 getByText 选择通用模版');
+          logger.info(`  使用 getByText 选择模板: ${templateName}`);
         }
       }
     }
@@ -311,15 +314,15 @@ async function applyGeneralTemplate(page, logger) {
           logger.info(`  点击选择器: ${selector}`);
           await page.waitForTimeout(1000);
 
-          // 选择通用模版
+          // 选择目标模板
           const option = page.locator('.next-menu-item, li[role="option"]')
-            .filter({ hasText: '通用模版' }).first();
+            .filter({ hasText: templateMatcher }).first();
           const optExists = await option.count();
 
           if (optExists > 0) {
             await option.click();
             selected = true;
-            logger.info('  选择通用模版');
+            logger.info(`  选择模板: ${templateName}`);
             break;
           }
         }
@@ -330,7 +333,7 @@ async function applyGeneralTemplate(page, logger) {
   }
 
   if (!selected) {
-    throw new Error('无法应用通用模版');
+    throw new Error(`无法应用模板: ${templateName}`);
   }
 
   // 等待模板应用
@@ -346,7 +349,11 @@ async function applyGeneralTemplate(page, logger) {
     logger.info('  ✅ 模板选择完成');
   }
 
-  logger.info('  模板预设: 6个颜色 + 8个尺码(XS/S/M/L/XL/XXL/XXXL/均码)');
+  if (templateName === '通用模版') {
+    logger.info('  模板预设: 6个颜色 + 8个尺码(XS/S/M/L/XL/XXL/XXXL/均码)');
+  } else {
+    logger.info(`  模板选择: ${templateName}`);
+  }
 }
 
 /**
@@ -716,6 +723,7 @@ const step4 = async (ctx) => {
       const femaleMoveSport = process.env.TEMPLATE_ITEM_ID_FEMALE_MOVESPORT || '998736086966';
       const femaleMasterBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_MASTER_BUNNY || '998750666072';
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
+      const femaleArchivio = process.env.TEMPLATE_ITEM_ID_FEMALE_ARCHIVIO || '887494790347';
 
       const isPing = brandKey.includes('ping');
       const isMizuno = brandKey.includes('mizuno') || brandKey.includes('美津浓');
@@ -723,6 +731,7 @@ const step4 = async (ctx) => {
       if (store === 'female') {
         if (isPing) return femalePing;
         if (isMizuno) return femaleMizuno;
+        if (brandKey.includes('archivio')) return femaleArchivio;
         if (brandKey === 'pearly gates') return femalePearly;
         if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
         if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
@@ -753,7 +762,10 @@ const step4 = async (ctx) => {
     ctx.logger.info(`店铺: ${store === 'female' ? '女店' : '男店'} | 品牌: ${brand || '(空)'}`);
     ctx.logger.info(`模板商品ID: ${templateItemId}`);
 
-    const directUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+    const brandKey = (brand || '').toLowerCase();
+    const directUrl = (store === 'female' && brandKey.includes('archivio'))
+      ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
+      : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);
 
     await page.bringToFront().catch(() => {});
@@ -874,8 +886,9 @@ const step4 = async (ctx) => {
         // 步骤1：进入销售信息页签
         await enterSalesInfo(page1, ctx.logger);
 
-        // 步骤2：应用通用模板
-        await applyGeneralTemplate(page1, ctx.logger);
+        // 步骤2：应用销售属性模板（Archivio：archivio；其他：通用模版）
+        const salesTemplateName = (store === 'female' && brandKey.includes('archivio')) ? 'archivio' : '通用模版';
+        await applyGeneralTemplate(page1, ctx.logger, { templateName: salesTemplateName });
 
         // 步骤3：处理颜色分类
         if (colors.length > 0) {

@@ -75,9 +75,9 @@ async function waitForAttributesVisible(page, logger, timeout = 10000) {
 }
 
 /**
- * 检测并选择通用模版（优化版）
+ * 检测并选择目标模板（优化版）
  */
-async function detectAndSelectGeneralTemplate(page, logger) {
+async function detectAndSelectGeneralTemplate(page, logger, templateName = '通用模版') {
   logger.info('  尝试点击模板按钮...');
 
   // 设置对话框处理器
@@ -127,16 +127,16 @@ async function detectAndSelectGeneralTemplate(page, logger) {
   // 优化：减少等待时间到 200ms
   await page.waitForTimeout(200);
 
-  // 查找并点击通用模版选项
-  const generalTemplateOption = page.getByText('通用模版', { exact: true });
+  const templateMatcher = new RegExp(templateName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const generalTemplateOption = page.getByText(templateMatcher).first();
 
   if (!await generalTemplateOption.isVisible()) {
-    logger.warn('  未找到通用模版选项');
+    logger.warn(`  未找到模板选项: ${templateName}`);
     return false;
   }
 
   await generalTemplateOption.click();
-  logger.info('  使用 getByText 选择通用模版');
+  logger.info(`  使用 getByText 选择模板: ${templateName}`);
 
   // 清理对话框处理器
   page.removeListener('dialog', dialogHandler);
@@ -274,24 +274,40 @@ async function waitForElementStable(page, selector, timeout = 3000) {
 }
 
 /**
- * 应用通用模板（优化版）
+ * 应用销售属性模板（优化版，默认：通用模版）
  */
-async function applyGeneralTemplate(page, logger) {
-  logger.info('\n[步骤2] 应用通用模板');
+async function applyGeneralTemplate(page, logger, options = {}) {
+  const templateName = (options.templateName || '通用模版').trim();
+  const templateMatcher = new RegExp(templateName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+  logger.info(`\n[步骤2] 应用销售属性模板（${templateName}）`);
 
   // 检查是否需要应用模板
   const needsTemplate = await needsApplyTemplate(page, logger);
 
-  if (!needsTemplate) {
+  // 若已存在属性但模板不匹配（例如 Archivio），也要按需切换模板
+  const templateAlreadyApplied = await page
+    .locator('#sale-card')
+    .getByText(templateMatcher)
+    .first()
+    .isVisible()
+    .catch(() => false);
+
+  if (!needsTemplate && templateAlreadyApplied) {
+    logger.info(`  ✅ 模板已应用: ${templateName}`);
+    return;
+  }
+
+  if (!needsTemplate && templateName === '通用模版') {
     logger.info('  已有销售属性，跳过模板应用');
     return;
   }
 
-  // 检测并选择通用模版
-  const selected = await detectAndSelectGeneralTemplate(page, logger);
+  // 检测并选择目标模板
+  const selected = await detectAndSelectGeneralTemplate(page, logger, templateName);
 
   if (!selected) {
-    throw new Error('无法应用通用模版');
+    throw new Error(`无法应用模板: ${templateName}`);
   }
 
   // 等待模板应用完成
@@ -315,7 +331,11 @@ async function applyGeneralTemplate(page, logger) {
     logger.info('  ✅ 模板选择完成');
   }
 
-  logger.info('  模板预设: 6个颜色 + 8个尺码(XS/S/M/L/XL/XXL/XXXL/均码)');
+  if (templateName === '通用模版') {
+    logger.info('  模板预设: 6个颜色 + 8个尺码(XS/S/M/L/XL/XXL/XXXL/均码)');
+  } else {
+    logger.info(`  模板选择: ${templateName}`);
+  }
 }
 
 /**
@@ -570,8 +590,10 @@ async function step4(ctx) {
       const femaleMoveSport = process.env.TEMPLATE_ITEM_ID_FEMALE_MOVESPORT || '998736086966';
       const femaleMasterBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_MASTER_BUNNY || '998750666072';
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
+      const femaleArchivio = process.env.TEMPLATE_ITEM_ID_FEMALE_ARCHIVIO || '887494790347';
 
       if (store === 'female') {
+      if (brandKey.includes('archivio')) return femaleArchivio;
       if (brandKey === 'pearly gates') return femalePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
       if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
@@ -592,11 +614,14 @@ async function step4(ctx) {
     };
 
     const templateItemId = resolveTemplateId(store, brand);
+    const brandKey = (brand || '').toLowerCase();
 
     ctx.logger.info(`店铺: ${store === 'female' ? '女店' : '男店'} | 品牌: ${brand || '(空)'}`);
     ctx.logger.info(`使用模板ID: ${templateItemId}`);
 
-    const publishUrl = `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+    const publishUrl = (store === 'female' && brandKey.includes('archivio'))
+      ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
+      : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${publishUrl}`);
 
     await page.goto(publishUrl, {
@@ -685,7 +710,8 @@ async function step4(ctx) {
 
     // 执行销售属性设置
     await enterSalesInfo(page1, ctx.logger);
-    await applyGeneralTemplate(page1, ctx.logger);
+    const salesTemplateName = (store === 'female' && brandKey.includes('archivio')) ? 'archivio' : '通用模版';
+    await applyGeneralTemplate(page1, ctx.logger, { templateName: salesTemplateName });
     await processColors(page1, colors, ctx.logger);
     await processSizes(page1, sizes, ctx.logger);
     await reEnterSalesInfo(page1, ctx.logger);
