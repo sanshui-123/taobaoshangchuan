@@ -188,26 +188,18 @@ const step7 = async (ctx) => {
     if (!skuEditable) {
       ctx.logger.warn('  ⚠️ 货号输入框不可编辑，尝试移除只读属性并直接写值');
       try {
-        await page.evaluate(({ value, isGolfBall }) => {
-          const baseCandidates = [
-            document.querySelector('#sell-field-sku input, #sell-field-sku textarea'),
-            document.querySelector('div:has-text("货号") input'),
-            document.querySelector('input[placeholder*="货号"]'),
-            document.querySelector('input[name*="货号"]')
-          ];
-          const golfCandidates = isGolfBall
-            ? Array.from(document.querySelectorAll('[id^="sell-field-p-"] input, [id^="sell-field-p-"] textarea'))
-            : [];
-          const candidates = [...baseCandidates, ...golfCandidates].filter(Boolean);
-          const input = candidates[0];
-          if (input) {
-            input.removeAttribute('readonly');
-            input.removeAttribute('disabled');
-            input.value = value;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        }, { value: productId, isGolfBall: isGolfBallCategory });
+        // 注意：page.evaluate 内不能使用 Playwright 选择器（如 :has-text），这里只对已定位到的输入框做处理
+        await skuInput.evaluate((el, value) => {
+          if (!el) return;
+          el.removeAttribute('readonly');
+          el.removeAttribute('disabled');
+          el.removeAttribute('aria-readonly');
+          el.removeAttribute('aria-disabled');
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.dispatchEvent(new Event('blur', { bubbles: true }));
+        }, productId);
       } catch (e) {
         ctx.logger.warn(`  ⚠️ 移除只读失败: ${e.message}`);
       }
