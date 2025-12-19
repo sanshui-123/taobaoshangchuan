@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const { closeMaterialCenterPopups } = require('../utils/advert-handler');
 const browserManager = require('../utils/browser-manager');
+const { waitForTaobaoHumanVerify } = require('../utils/taobao-human-verify');
 
 // 解析命令行参数
 const args = process.argv.slice(2);
@@ -35,6 +36,133 @@ function log(message, type = 'info') {
   }[type] || '📋';
 
   console.log(`${prefix} Step5: ${message}`);
+}
+
+function createVerifyLogger() {
+  return {
+    info: (message) => log(message, 'info'),
+    warn: (message) => log(message, 'warning'),
+    success: (message) => log(message, 'success')
+  };
+}
+
+function escapeRegExp(source) {
+  return String(source).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function isInProductFolder(page, productId) {
+  const matcher = new RegExp(`全部图片\\s*\\/\\s*${escapeRegExp(productId)}\\b`);
+  return await page.getByText(matcher).first().isVisible({ timeout: 500 }).catch(() => false);
+}
+
+async function ensureInProductFolder(page, productId, materialUrl) {
+  if (await isInProductFolder(page, productId)) return true;
+
+  const folderNodeSelectors = [
+    `li.next-tree-node:has-text("${productId}")`,
+    `[role="treeitem"]:has-text("${productId}")`,
+    `span.next-tree-node-label:has-text("${productId}")`
+  ];
+
+  for (const selector of folderNodeSelectors) {
+    const node = page.locator(selector).first();
+    if (!await node.isVisible({ timeout: 800 }).catch(() => false)) continue;
+
+    await node.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(1200);
+    if (await isInProductFolder(page, productId)) return true;
+
+    // 有时需要再点一次
+    await node.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(1200);
+    if (await isInProductFolder(page, productId)) return true;
+  }
+
+  // 兜底：回到素材库首页再试一次
+  try {
+    await page.goto(materialUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
+  } catch (e) {
+    // ignore
+  }
+
+  for (const selector of folderNodeSelectors) {
+    const node = page.locator(selector).first();
+    if (!await node.isVisible({ timeout: 800 }).catch(() => false)) continue;
+
+    await node.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(1200);
+    if (await isInProductFolder(page, productId)) return true;
+  }
+
+  return await isInProductFolder(page, productId);
+}
+
+async function folderShowsEmpty(page) {
+  const emptySelectors = [
+    'text=暂无图片',
+    'text=暂无内容',
+    'text=暂无数据',
+    'p[class*="Empty_description"]',
+    '[class*="Empty_description"]'
+  ];
+
+  for (const selector of emptySelectors) {
+    if (await page.locator(selector).first().isVisible({ timeout: 400 }).catch(() => false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function folderHasAnyUploadedFiles(page) {
+  const selectors = [
+    'img[src*="color_"]',
+    'a[href*="color_"]',
+    'text=/color_\\d/i'
+  ];
+
+  for (const selector of selectors) {
+    const count = await page.locator(selector).count().catch(() => 0);
+    if (count > 0) return true;
+  }
+  return false;
+}
+
+async function verifyFolderNotEmpty(page, productId, materialUrl, verifyLogger) {
+  // 确保在目标文件夹视图
+  const inFolder = await ensureInProductFolder(page, productId, materialUrl);
+  if (!inFolder) {
+    log(`⚠️ 无法确认已进入文件夹 ${productId}，仍尝试验证文件列表...`, 'warning');
+  }
+
+  let emptyHits = 0;
+  const start = Date.now();
+  const timeoutMs = 30000;
+
+  while (Date.now() - start < timeoutMs) {
+    await waitForTaobaoHumanVerify(page, verifyLogger);
+
+    if (await folderHasAnyUploadedFiles(page)) {
+      log(`✅ 文件夹 ${productId} 已检测到上传图片`, 'success');
+      return true;
+    }
+
+    if (await folderShowsEmpty(page)) {
+      emptyHits += 1;
+      if (emptyHits >= 3) {
+        log(`⚠️ 文件夹 ${productId} 连续检测到“暂无图片”，认为上传未落地`, 'warning');
+        return false;
+      }
+    } else {
+      emptyHits = 0;
+    }
+
+    await page.waitForTimeout(1000);
+  }
+
+  // 超时兜底：最终再判断一次
+  return await folderHasAnyUploadedFiles(page);
 }
 
 
@@ -471,6 +599,7 @@ async function uploadImages(productId) {
 
   let browser;
   let page;
+  const verifyLogger = createVerifyLogger();
 
   try {
     // 连接到现有Chrome实例（复用端点：BROWSER_CDP_ENDPOINT > BROWSER_CDP_PORT > TAOBAO_STORE）
@@ -506,6 +635,7 @@ async function uploadImages(productId) {
     log(`步骤2: 导航到素材库页面... (店铺: ${store})`);
     await page.goto(materialUrl);
     await page.waitForTimeout(3000); // 等待页面加载
+    await waitForTaobaoHumanVerify(page, verifyLogger);
 
     // 步骤3: 验证本地文件夹
     log('步骤3: 验证本地图片文件夹...');
@@ -523,6 +653,7 @@ async function uploadImages(productId) {
         timeout: 30000
       });
       await page.waitForTimeout(2000);
+      await waitForTaobaoHumanVerify(page, verifyLogger);
       log(`📂 已进入素材库根目录，准备处理 ${productId}`, 'success');
     } catch (navError) {
       log(`导航到素材库根目录失败: ${navError.message}，继续尝试...`, 'warning');
@@ -883,140 +1014,162 @@ async function uploadImages(productId) {
     }
     }  // 结束 if (!skipFolderCreation) 块
 
-    // 步骤5: 点击上传文件按钮
-    log('步骤5: 点击上传文件按钮...');
-
-    // 在上传文件前清理所有弹窗和干扰层
-    logVerbose('上传文件前清理弹窗...');
-    await closeMaterialCenterPopups(page);
-
-    const uploadButtonSelectors = [
-      'button:has-text("上传文件")',
-      'button:has-text("批量导入")',
-      '.upload-button',
-      '[class*="upload"]'
-    ];
-
-    let uploadButton = null;
-    for (const selector of uploadButtonSelectors) {
-      try {
-        uploadButton = await page.$(selector);
-        if (uploadButton) {
-          logVerbose(`找到上传按钮: ${selector}`);
-          break;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    if (!uploadButton) {
-      throw new Error('未找到上传文件按钮');
-    }
-
-    // 🔧 修复：优先使用 input[type="file"].setInputFiles() 直接设置文件，绕过 Finder 对话框
+    const maxUploadAttempts = parseInt(process.env.MATERIAL_UPLOAD_MAX_ATTEMPTS || '2', 10) || 2;
     const filePaths = localData.files.map(file => path.join(localData.localFolder, file));
-    log(`📁 准备上传 ${filePaths.length} 个本地文件`);
 
-    // 方案1：优先查找隐藏的 input[type="file"]，直接设置文件（完全绕过 Finder）
-    const fileInputSelectors = [
-      'input[type="file"]',
-      'input[accept*="image"]',
-      '.upload-container input[type="file"]',
-      '[class*="upload"] input[type="file"]'
-    ];
+    for (let uploadAttempt = 1; uploadAttempt <= maxUploadAttempts; uploadAttempt++) {
+      // 步骤5: 点击上传文件按钮
+      log(`步骤5: 点击上传文件按钮...（尝试 ${uploadAttempt}/${maxUploadAttempts}）`);
 
-    let fileInputSet = false;
-    for (const selector of fileInputSelectors) {
-      try {
-        const fileInput = await page.$(selector);
-        if (fileInput) {
-          log(`📂 找到文件输入框: ${selector}，直接设置文件...`, 'info');
-          await fileInput.setInputFiles(filePaths);
-          log(`✅ 已通过 input.setInputFiles() 直接设置 ${filePaths.length} 个文件（绕过 Finder）`, 'success');
-          fileInputSet = true;
-          break;
-        }
-      } catch (e) {
-        logVerbose(`尝试 ${selector} 失败: ${e.message}`);
-        continue;
+      await waitForTaobaoHumanVerify(page, verifyLogger);
+
+      // 刷新/弹窗可能导致离开目标文件夹，重进一次
+      const inFolder = await ensureInProductFolder(page, productId, materialUrl);
+      if (!inFolder) {
+        log(`⚠️ 未能确认进入文件夹 ${productId}，仍继续尝试上传（可能失败）`, 'warning');
       }
-    }
 
-    if (fileInputSet) {
-      // 已通过 input 设置文件，等待上传开始
-      await page.waitForTimeout(1000);
-      log('✅ 文件已设置，等待上传处理...', 'success');
-    } else {
-      // 方案2：如果找不到 input，使用 filechooser 事件监听器
-      log('⚠️ 未找到文件输入框，使用 filechooser 事件监听方式...', 'warning');
+      // 在上传文件前清理所有弹窗和干扰层
+      logVerbose('上传文件前清理弹窗...');
+      await closeMaterialCenterPopups(page);
+      await waitForTaobaoHumanVerify(page, verifyLogger);
 
-      const fileChooserHandler = async (fileChooser) => {
-        log('📂 检测到文件选择器，直接选择本地文件...', 'info');
+      const uploadButtonSelectors = [
+        'button:has-text("上传文件")',
+        'button:has-text("批量导入")',
+        '.upload-button',
+        '[class*="upload"]'
+      ];
+
+      let uploadButton = null;
+      for (const selector of uploadButtonSelectors) {
         try {
-          // 直接设置本地文件列表
-          await fileChooser.setFiles(filePaths);
-          log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
-        } catch (setFilesError) {
-          log(`⚠️ setFiles 出错: ${setFilesError.message}`, 'warning');
-        } finally {
-          // 无论成功失败，都强制关闭 Finder
-          try {
-            await page.keyboard.press('Escape');
-            await page.waitForTimeout(200);
-            await page.keyboard.press('Escape');
-            await page.waitForTimeout(200);
-            await page.keyboard.press('Escape');
-            log('✅ 已发送三次 ESC 强制关闭文件对话框', 'success');
-          } catch (escError) {
-            log(`⚠️ ESC 发送失败: ${escError.message}`, 'warning');
+          uploadButton = await page.$(selector);
+          if (uploadButton) {
+            logVerbose(`找到上传按钮: ${selector}`);
+            break;
           }
+        } catch (e) {
+          continue;
         }
-      };
-      page.once('filechooser', fileChooserHandler);
-
-      await uploadButton.click();
-      log('点击了上传文件按钮', 'success');
-      await page.waitForTimeout(2000);
-
-      // 移除监听器（如果没有触发）
-      page.removeListener('filechooser', fileChooserHandler);
-
-      // 额外保险：再发送 ESC 确保 Finder 关闭
-      try {
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(300);
-      } catch (e) {
-        // 忽略
       }
-    }
 
-    // 如果有"批量导入文件"选项，点击它
-    try {
-      const batchUploadSelector = 'button:has-text("批量导入"), button:has-text("批量上传")';
-      const batchButton = await page.$(batchUploadSelector);
-      if (batchButton) {
-        await batchButton.click();
-        log('点击了批量导入按钮', 'success');
+      if (!uploadButton) {
+        throw new Error('未找到上传文件按钮');
+      }
+
+      // 🔧 修复：优先使用 input[type="file"].setInputFiles() 直接设置文件，绕过 Finder 对话框
+      log(`📁 准备上传 ${filePaths.length} 个本地文件`);
+
+      // 方案1：优先查找隐藏的 input[type="file"]，直接设置文件（完全绕过 Finder）
+      const fileInputSelectors = [
+        'input[type="file"]',
+        'input[accept*="image"]',
+        '.upload-container input[type="file"]',
+        '[class*="upload"] input[type="file"]'
+      ];
+
+      let fileInputSet = false;
+      for (const selector of fileInputSelectors) {
+        try {
+          const fileInput = await page.$(selector);
+          if (fileInput) {
+            log(`📂 找到文件输入框: ${selector}，直接设置文件...`, 'info');
+            await fileInput.setInputFiles(filePaths);
+            log(`✅ 已通过 input.setInputFiles() 直接设置 ${filePaths.length} 个文件（绕过 Finder）`, 'success');
+            fileInputSet = true;
+            break;
+          }
+        } catch (e) {
+          logVerbose(`尝试 ${selector} 失败: ${e.message}`);
+          continue;
+        }
+      }
+
+      if (fileInputSet) {
+        // 已通过 input 设置文件，等待上传开始
         await page.waitForTimeout(1000);
+        log('✅ 文件已设置，等待上传处理...', 'success');
+      } else {
+        // 方案2：如果找不到 input，使用 filechooser 事件监听器
+        log('⚠️ 未找到文件输入框，使用 filechooser 事件监听方式...', 'warning');
+
+        const fileChooserHandler = async (fileChooser) => {
+          log('📂 检测到文件选择器，直接选择本地文件...', 'info');
+          try {
+            // 直接设置本地文件列表
+            await fileChooser.setFiles(filePaths);
+            log(`✅ 已通过 filechooser 选择 ${filePaths.length} 个文件`, 'success');
+          } catch (setFilesError) {
+            log(`⚠️ setFiles 出错: ${setFilesError.message}`, 'warning');
+          } finally {
+            // 无论成功失败，都强制关闭 Finder
+            try {
+              await page.keyboard.press('Escape');
+              await page.waitForTimeout(200);
+              await page.keyboard.press('Escape');
+              await page.waitForTimeout(200);
+              await page.keyboard.press('Escape');
+              log('✅ 已发送三次 ESC 强制关闭文件对话框', 'success');
+            } catch (escError) {
+              log(`⚠️ ESC 发送失败: ${escError.message}`, 'warning');
+            }
+          }
+        };
+        page.once('filechooser', fileChooserHandler);
+
+        await uploadButton.click();
+        log('点击了上传文件按钮', 'success');
+        await page.waitForTimeout(2000);
+
+        // 移除监听器（如果没有触发）
+        page.removeListener('filechooser', fileChooserHandler);
+
+        // 额外保险：再发送 ESC 确保 Finder 关闭
+        try {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+        } catch (e) {
+          // 忽略
+        }
       }
-    } catch (e) {
-      logVerbose('未找到批量导入按钮，继续标准上传流程...');
-    }
 
-    // 步骤6: 处理文件上传对话框
-    log('步骤6: 处理文件上传对话框...');
+      // 如果有"批量导入文件"选项，点击它
+      try {
+        const batchUploadSelector = 'button:has-text("批量导入"), button:has-text("批量上传")';
+        const batchButton = await page.$(batchUploadSelector);
+        if (batchButton) {
+          await batchButton.click();
+          log('点击了批量导入按钮', 'success');
+          await page.waitForTimeout(1000);
+        }
+      } catch (e) {
+        logVerbose('未找到批量导入按钮，继续标准上传流程...');
+      }
 
-    const uploadSuccess = await handleFileUploadDialog(page, productId, localData.localFolder, localData.files);
-    if (!uploadSuccess) {
-      throw new Error('文件上传对话框处理失败');
-    }
+      // 步骤6: 处理文件上传对话框
+      log('步骤6: 处理文件上传对话框...');
 
-    // 步骤7: 等待上传完成
-    log('步骤7: 等待上传完成...');
-    const isUploadComplete = await waitForUploadComplete(page);
+      const uploadSuccess = await handleFileUploadDialog(page, productId, localData.localFolder, localData.files);
+      if (!uploadSuccess) {
+        throw new Error('文件上传对话框处理失败');
+      }
 
-    if (isUploadComplete) {
+      await waitForTaobaoHumanVerify(page, verifyLogger);
+
+      // 步骤7: 等待上传完成
+      log('步骤7: 等待上传完成...');
+      const isUploadComplete = await waitForUploadComplete(page);
+
+      if (!isUploadComplete) {
+        log(`⚠️ 未检测到明确的上传成功标志（尝试 ${uploadAttempt}/${maxUploadAttempts}）`, 'warning');
+        if (uploadAttempt < maxUploadAttempts) {
+          await waitForTaobaoHumanVerify(page, verifyLogger);
+          continue;
+        }
+        throw new Error('上传超时或失败');
+      }
+
       log(`🎉 Step5完成！成功上传 ${localData.files.length} 个图片文件到商品 ${productId} 的文件夹`, 'success');
 
       // 🔴 关键步骤：直接通过 ESC 关闭上传对话框，避免误触顶栏
@@ -1107,25 +1260,42 @@ async function uploadImages(productId) {
         log('✅ 确认所有对话框已关闭', 'success');
       }
 
-      // 🔴 关键步骤：刷新页面并验证文件
+      // 🔴 关键步骤：刷新页面并验证文件（解决“安全验证导致上传未落地但流程误判成功”）
       log('步骤10: 刷新页面并验证文件位置...');
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForTimeout(3000);
 
-      // 清理刷新后可能出现的弹窗
+      // 清理刷新后可能出现的弹窗/验证码
       await closeMaterialCenterPopups(page, { forceRemoveSearchPanel: true });
-      await page.waitForTimeout(2000);
+      await waitForTaobaoHumanVerify(page, verifyLogger);
+      await page.waitForTimeout(1500);
 
-      // 上传完成后直接返回成功，省去耗时的目录验证和截图
-      log('🚀 上传任务完成，跳过目录验证以提升速度', 'success');
-      return {
-        success: true,
-        productId,
-        uploadedFiles: localData.files.length,
-        message: `成功上传 ${localData.files.length} 个文件`
-      };
-    } else {
-      throw new Error('上传超时或失败');
+      const verified = await verifyFolderNotEmpty(page, productId, materialUrl, verifyLogger);
+      if (verified) {
+        log('✅ 上传任务完成，目录验证通过', 'success');
+        return {
+          success: true,
+          productId,
+          uploadedFiles: localData.files.length,
+          message: `成功上传 ${localData.files.length} 个文件`
+        };
+      }
+
+      try {
+        const screenshotPath = `step5-hard-verify-empty-${productId}-attempt${uploadAttempt}.png`;
+        await page.screenshot({ path: screenshotPath, fullPage: false, type: 'png', timeout: 5000 });
+        log(`📸 已保存空文件夹验证截图: ${screenshotPath}`, 'warning');
+      } catch (e) {
+        // ignore
+      }
+
+      if (uploadAttempt < maxUploadAttempts) {
+        log('⚠️ 上传后仍显示“暂无图片”，可能被安全验证拦截，准备重试上传...', 'warning');
+        await waitForTaobaoHumanVerify(page, verifyLogger);
+        continue;
+      }
+
+      throw new Error('上传后验证失败：文件夹仍显示暂无图片（可能被安全验证拦截）');
     }
 
   } catch (error) {
