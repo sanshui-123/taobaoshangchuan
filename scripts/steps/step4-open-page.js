@@ -482,7 +482,18 @@ async function processColors(page, targetColors, logger) {
     for (let i = 0; i < addCount; i++) {
       // 点击添加按钮
       const addBtn = colorContainer.locator('button.add, button:has(.next-icon-add)').first();
-      await addBtn.click();
+      const addBtnCount = await addBtn.count().catch(() => 0);
+      if (addBtnCount === 0) {
+        throw new Error('未找到“添加颜色”按钮（颜色分类结构可能已变更），请手动补全颜色分类后重试');
+      }
+
+      await addBtn.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+      const addBtnVisible = await addBtn.isVisible({ timeout: 800 }).catch(() => false);
+      if (!addBtnVisible) {
+        throw new Error('“添加颜色”按钮不可见（可能被折叠/结构变更），请手动补全颜色分类后重试');
+      }
+
+      await addBtn.click({ force: true, timeout: 3000 });
       await page.waitForTimeout(800);
     }
   }

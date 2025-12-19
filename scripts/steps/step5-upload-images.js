@@ -1035,8 +1035,8 @@ const step5 = async (ctx) => {
       ctx.logger.warn('未找到左侧导航，继续执行');
     }
 
-    // 步骤1：滚动到页面顶部（双保险滚动）
-    ctx.logger.info('\n[步骤1] 滚动到页面顶部');
+	    // 步骤1：滚动到页面顶部（双保险滚动）
+	    ctx.logger.info('\n[步骤1] 滚动到页面顶部');
 
     // 双保险滚动函数：先定位主图区域，再滚动窗口
     const scrollToTop = async () => {
@@ -1049,9 +1049,20 @@ const step5 = async (ctx) => {
       });
     };
 
-    await scrollToTop();
-    await page.waitForTimeout(1000);
-    ctx.logger.success('✅ 已滚动到顶部（双保险）');
+	    await scrollToTop();
+	    await page.waitForTimeout(1000);
+	    ctx.logger.success('✅ 已滚动到顶部（双保险）');
+
+	    // 如果上一次运行残留素材库弹窗（卡在“选择图片”空白层），先关闭再继续
+	    try {
+	      if (await isMaterialPickerOpen(page, ctx)) {
+	        ctx.logger.warn('⚠️ 检测到素材库弹窗残留，先尝试关闭...');
+	        await closeMaterialPickerWithRetry(page, null, ctx, productId, { preferBlankClose: true }).catch(() => {});
+	        await page.waitForTimeout(500);
+	      }
+	    } catch (e) {
+	      // ignore
+	    }
 
 	    // 保存调试截图（查看滚动后的页面状态）
 	    try {
@@ -1062,88 +1073,99 @@ const step5 = async (ctx) => {
 	      ctx.logger.warn('调试截图失败');
 	    }
 
-    // 步骤2：清理模板预置主图（千牛新 UI 会默认带图，必须先删，否则会误点到视频上传位）
-    ctx.logger.info('\n[步骤2] 检查并清理模板预置主图');
-    await clearMainImagesIfNeeded(page, ctx).catch(() => {});
+	    // 步骤2：清理模板预置主图（千牛新 UI 会默认带图，必须先删，否则会误点到视频上传位）
+	    ctx.logger.info('\n[步骤2] 检查并清理模板预置主图');
+	    await clearMainImagesIfNeeded(page, ctx).catch(() => {});
 
-    // 步骤3：点击第一个白底图上传位
-    ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
+	    // 步骤3：点击第一个白底图上传位
+	    ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
 
-    // 🔧 修复：设置 filechooser 事件监听器，拦截可能出现的原生文件对话框
-    // 当点击上传位时，如果触发了 <input type="file">，会弹出系统文件选择器（Finder）
-    // 使用 once 监听器来自动取消这个对话框，避免它一直挂在前面
-    let fileChooserTriggered = false;
-    const fileChooserHandler = async (fileChooser) => {
-      fileChooserTriggered = true;
-      ctx.logger.warn('  ⚠️  检测到原生文件对话框，自动取消...');
-      // 取消文件选择器（不选择任何文件）
-      await fileChooser.setFiles([]);
-      // 双保险：按 Escape 确保关闭
-      await page.keyboard.press('Escape');
-      ctx.logger.info('  ✅ 原生文件对话框已关闭');
-    };
-    page.once('filechooser', fileChooserHandler);
+	    const openMaterialPicker = async (attemptTag = '') => {
+	      // 🔧 防御：设置 filechooser 事件监听器，拦截可能出现的原生文件对话框
+	      let fileChooserTriggered = false;
+	      const fileChooserHandler = async (fileChooser) => {
+	        fileChooserTriggered = true;
+	        ctx.logger.warn('  ⚠️  检测到原生文件对话框，自动取消...');
+	        await fileChooser.setFiles([]);
+	        ctx.logger.info('  ✅ 原生文件对话框已关闭');
+	      };
+	      page.once('filechooser', fileChooserHandler);
 
-    const uploadBoxClicked = await clickMainImageUploadSlot(page, ctx);
+	      const uploadBoxClicked = await clickMainImageUploadSlot(page, ctx);
+	      if (!uploadBoxClicked) {
+	        page.removeListener('filechooser', fileChooserHandler);
+	        return false;
+	      }
 
-    if (!uploadBoxClicked) {
-      // 移除未触发的事件监听器
-      page.removeListener('filechooser', fileChooserHandler);
-      throw new Error('无法找到上传位，请检查页面结构');
-    }
+	      await page.waitForTimeout(500);
+	      if (!fileChooserTriggered) {
+	        page.removeListener('filechooser', fileChooserHandler);
+	        ctx.logger.info('  素材库弹窗模式（未触发原生文件对话框）');
+	      }
 
-    // 等待一小段时间看 filechooser 是否被触发
-    await page.waitForTimeout(500);
+	      ctx.logger.info('等待弹窗开始出现...');
+	      await page.waitForTimeout(800);
 
-    // 移除未触发的事件监听器（避免内存泄漏）
-    if (!fileChooserTriggered) {
-      page.removeListener('filechooser', fileChooserHandler);
-      ctx.logger.info('  素材库弹窗模式（未触发原生文件对话框）');
-    }
+	      try {
+	        const suffix = attemptTag ? `_${attemptTag}` : '';
+	        const debugScreenshotAfter = `/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click${suffix}.png`;
+	        await page.screenshot({ path: debugScreenshotAfter, fullPage: false, timeout: 10000 });
+	        ctx.logger.info(`📸 点击后调试截图: ${debugScreenshotAfter}`);
+	      } catch (e) {
+	        ctx.logger.warn(`调试截图失败（但不影响流程）: ${e.message}`);
+	      }
 
-    // 点击后等待弹窗开始加载
-    ctx.logger.info('等待弹窗开始出现...');
-    await page.waitForTimeout(800);  // 缩短固定等待
+	      await scrollToTop();
+	      await page.waitForTimeout(500);
+	      return true;
+	    };
 
-	    // 调试截图：查看点击后的状态
-	    try {
-	      const debugScreenshotAfter = '/Users/sanshui/Desktop/tbzhuaqu/screenshots/debug_after_click.png';
-	      await page.screenshot({
-	        path: debugScreenshotAfter,
-	        fullPage: false,
-	        timeout: 10000
-	      });
-	      ctx.logger.info(`📸 点击后调试截图: ${debugScreenshotAfter}`);
-	    } catch (e) {
-	      ctx.logger.warn(`调试截图失败（但不影响流程）: ${e.message}`);
+	    const opened = await openMaterialPicker();
+	    if (!opened) {
+	      throw new Error('无法找到上传位，请检查页面结构');
 	    }
-
-    // 再次滚动到顶部，防止弹窗打开时页面跳动
-    await scrollToTop();
-    await page.waitForTimeout(500);
 
 	    // 等待弹窗出现（限时 8 秒）
 	    ctx.logger.info('\n等待"选择图片"弹窗出现...');
 	    // 不使用 waitForSelector（在某些状态下会卡死），改用重试探测
 	    await page.waitForTimeout(200);
 
-	    // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
-	    ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
+		    // 步骤4：在弹出的"选择图片"对话框中搜索文件夹
+		    ctx.logger.info('\n[步骤4] 在弹窗中搜索文件夹');
 
 	    // 声明工作定位器（需要在try外部声明，以便后续步骤使用）
 	    let workingLocator;  // 工作的定位器（iframe或page）
 
-	    // 方案A：优先使用搜索框（根据实际弹窗结构）
-	    try {
-	      ctx.logger.info('  🔍 等待搜索框就绪（最多15秒）...');
-	      const found = await waitForFolderSearchInput(page, ctx, 15000);
-	      if (!found) {
-	        throw new Error(`等待弹窗搜索框超时（已尝试 ${SEARCH_INPUT_SELECTORS.length} 个候选选择器）`);
-	      }
+		    // 方案A：优先使用搜索框（根据实际弹窗结构，失败则关闭弹窗并重开一次）
+		    try {
+		      ctx.logger.info('  🔍 等待搜索框就绪（最多20秒）...');
 
-	      const searchInput = found.searchInput;
-	      workingLocator = found.workingLocator;
-	      ctx.logger.success(`  ✅ 在${found.location}中找到搜索框（${found.selector}）`);
+		      let found = null;
+		      for (let attempt = 1; attempt <= 2; attempt++) {
+		        found = await waitForFolderSearchInput(page, ctx, 20000);
+		        if (found) break;
+
+		        ctx.logger.warn(`  ⚠️ 搜索框未就绪（可能弹窗空白/未加载），尝试关闭并重新打开素材库（第${attempt}/2）...`);
+		        try {
+		          const blankShot = path.resolve(process.cwd(), 'screenshots', `${productId}_step5_picker_blank_${attempt}.png`);
+		          await page.screenshot({ path: blankShot, fullPage: false, timeout: 10000 });
+		          ctx.logger.info(`  📸 空白弹窗截图: ${blankShot}`);
+		        } catch (e) {
+		          // ignore
+		        }
+
+		        await closeMaterialPickerWithRetry(page, null, ctx, productId, { preferBlankClose: true }).catch(() => {});
+		        await page.waitForTimeout(600);
+		        await openMaterialPicker(`retry_${attempt}`).catch(() => false);
+		      }
+
+		      if (!found) {
+		        throw new Error(`等待弹窗搜索框超时（已尝试 ${SEARCH_INPUT_SELECTORS.length} 个候选选择器）`);
+		      }
+
+		      const searchInput = found.searchInput;
+		      workingLocator = found.workingLocator;
+		      ctx.logger.success(`  ✅ 在${found.location}中找到搜索框（${found.selector}）`);
 
 	      // 等待搜索框可见并可操作
 	      await searchInput.waitFor({ state: 'visible', timeout: 5000 });
@@ -1346,22 +1368,41 @@ const step5 = async (ctx) => {
       }
     }
 
-    // 复用搜索时的工作定位器（关键：必须使用同一个iframe上下文！）
-    ctx.logger.info('\n[步骤5] 准备选择图片');
-    // workingLocator 是在搜索文件夹时已经确定的正确iframe定位器
-    // 直接复用它，不要重新创建，避免定位到错误的iframe
-    const uploadLocator = workingLocator;
-    ctx.logger.info('  ✅ 复用搜索时的定位器（确保在同一iframe上下文）');
+	    // 复用搜索时的工作定位器（关键：必须使用同一个iframe上下文！）
+	    ctx.logger.info('\n[步骤5] 准备选择图片');
+	    // workingLocator 是在搜索文件夹时已经确定的正确iframe定位器
+	    // 直接复用它，不要重新创建，避免定位到错误的iframe
+	    let uploadLocator = workingLocator;
+	    ctx.logger.info('  ✅ 复用搜索时的定位器（确保在同一iframe上下文）');
 
-    // 排序：文件名降序
-    const applySortDescending = async () => {
-      try {
-        ctx.logger.info('  排序：尝试点击排序下拉并选择"文件名降序"');
-        const triggers = [
-          // 方式1：带文字的下拉选择器
-          uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名|排序/ }).first(),
-          // 方式2：按钮角色
-          uploadLocator.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
+	    // 排序：文件名降序
+	    const applySortDescending = async () => {
+	      const safeClickInsidePicker = async () => {
+	        // 仅用于收起下拉菜单：必须点击弹窗内部，避免误点遮罩导致整窗关闭
+	        const candidates = [
+	          uploadLocator.locator('input[placeholder*="请输入文件夹名称"], input[placeholder*="文件夹名称"]').first(),
+	          uploadLocator.getByText('选择图片', { exact: false }).first(),
+	          uploadLocator.locator('.next-dialog-body, [class*="dialog-body"]').first()
+	        ];
+
+	        for (const c of candidates) {
+	          const ok = await c.isVisible({ timeout: 200 }).catch(() => false);
+	          if (!ok) continue;
+	          await c.click({ force: true, timeout: 1200 }).catch(() => {});
+	          await page.waitForTimeout(150);
+	          return true;
+	        }
+
+	        return false;
+	      };
+
+	      try {
+	        ctx.logger.info('  排序：尝试点击排序下拉并选择"文件名降序"');
+	        const triggers = [
+	          // 方式1：带文字的下拉选择器
+	          uploadLocator.locator('.next-select-trigger, .next-select').filter({ hasText: /上传时间|文件名|排序/ }).first(),
+	          // 方式2：按钮角色
+	          uploadLocator.getByRole('button', { name: /上传时间|文件名|排序/ }).first(),
           // 方式3：data-testid 或 class 包含 sort
           uploadLocator.locator('[data-testid*="sort"], [class*="sort"], .PicList_sort, .picList_sort').locator('button, .next-select-trigger').first(),
           // 方式4：包含"排序"文字的元素
@@ -1419,26 +1460,24 @@ const step5 = async (ctx) => {
             }
           }
 
-          if (option) {
-            await option.click({ force: true });
-            ctx.logger.info('  ✅ 已选择"文件名降序"');
-            await page.waitForTimeout(400);
-          } else {
-            ctx.logger.warn('  ⚠️ 未找到"文件名降序/倒序"选项，继续默认排序');
-            // 尝试按ESC键关闭可能打开的下拉菜单
-            await page.keyboard.press('Escape');
-          }
-        } else {
-          ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
-        }
-      } catch (e) {
-        ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
-        // 尝试按ESC键关闭可能打开的下拉菜单
-        try {
-          await page.keyboard.press('Escape');
-        } catch {}
-      }
-    };
+	          if (option) {
+	            await option.click({ force: true });
+	            ctx.logger.info('  ✅ 已选择"文件名降序"');
+	            await page.waitForTimeout(400);
+	          } else {
+	            ctx.logger.warn('  ⚠️ 未找到"文件名降序/倒序"选项，继续默认排序');
+	            // 不再使用 ESC（用户反馈无效），改为点击弹窗内部收起下拉（避免关闭整窗）
+	            await safeClickInsidePicker();
+	          }
+	        } else {
+	          ctx.logger.warn('  ⚠️ 未找到排序下拉，继续默认排序');
+	        }
+	      } catch (e) {
+	        ctx.logger.warn(`  ⚠️ 排序操作失败（忽略继续）: ${e.message}`);
+	        // 不再使用 ESC（用户反馈无效），改为点击弹窗内部收起下拉（避免关闭整窗）
+	        await safeClickInsidePicker().catch(() => {});
+	      }
+	    };
 
     try {
       await applySortDescending();
@@ -1467,21 +1506,40 @@ const step5 = async (ctx) => {
       let imageCount = 0;
       let imageCardSelector = null;
 
-      ctx.logger.info('  🔍 尝试查找图片卡片容器...');
-      for (const selector of imageCardSelectors) {
-        const count = await uploadLocator.locator(selector).count();
-        ctx.logger.info(`    尝试 "${selector}": ${count} 个`);
-        if (count > 0) {
+	      ctx.logger.info('  🔍 尝试查找图片卡片容器...');
+	      for (const selector of imageCardSelectors) {
+	        const count = await uploadLocator.locator(selector).count();
+	        ctx.logger.info(`    尝试 "${selector}": ${count} 个`);
+	        if (count > 0) {
           imageCount = count;
           imageCardSelector = selector;
           ctx.logger.success(`  ✅ 使用选择器 "${selector}" 找到 ${count} 个图片卡片`);
           break;
         }
-      }
+	      }
 
-      if (imageCount === 0) {
-        throw new Error('文件夹中没有找到图片卡片容器（已尝试多个选择器）');
-      }
+	      if (imageCount === 0) {
+	        ctx.logger.warn('  ⚠️ 未在当前定位器中找到图片卡片，尝试在所有 iframe 中重新定位素材库内容...');
+
+	        const iframeCount = await page.locator('iframe').count().catch(() => 0);
+	        for (let i = 0; i < iframeCount && imageCount === 0; i++) {
+	          const frameLocator = page.frameLocator('iframe').nth(i);
+	          for (const selector of imageCardSelectors) {
+	            const count = await frameLocator.locator(selector).count().catch(() => 0);
+	            if (count > 0) {
+	              uploadLocator = frameLocator;
+	              imageCount = count;
+	              imageCardSelector = selector;
+	              ctx.logger.success(`  ✅ 已在iframe#${i + 1}中重新找到图片卡片（${selector}: ${count}）`);
+	              break;
+	            }
+	          }
+	        }
+
+	        if (imageCount === 0) {
+	          throw new Error('文件夹中没有找到图片卡片容器（已尝试多个选择器）');
+	        }
+	      }
 
       // 根据颜色数智能选择图片（使用新的选择规则）
       const selectedCount = await selectImagesByRules(

@@ -161,7 +161,7 @@ function generateExecutionReport(data) {
     const status = stepStatus[i] || 'skipped';
     const stepNames = [
       '任务初始化', '下载图片', '翻译内容', '登录验证',
-      '打开发布页', '上传主图', '选择品牌', '填写货号性别',
+      '打开发布页', '上传主图', '选择品牌', '填写货号',
       '填写颜色', '填写尺码', '填写价格库存', '裁剪图片',
       '填写详情', '提交商品', '日志通知'
     ];

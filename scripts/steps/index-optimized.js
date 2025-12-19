@@ -17,7 +17,7 @@ const { step5: step6 } = require('./step5-fill-title-category');
 // 步骤7：选择品牌
 const { step6: step7 } = require('./step6-select-brand');
 
-// 步骤8：填写货号和性别
+// 步骤8：填写货号
 const { step7: step8 } = require('./step7-fill-basic');
 
 // 步骤9：价格库存填写

@@ -22,7 +22,7 @@ const { step5: step6 } = require('./step5-fill-title-category');
 // 步骤7：选择品牌
 const { step6: step7 } = require('./step6-select-brand');
 
-// 步骤8：填写货号和性别
+// 步骤8：填写货号
 const { step7: step8 } = require('./step7-fill-basic');
 
 // 步骤9：价格库存填写（新简化版）
@@ -50,7 +50,7 @@ const steps = {
   5: step5,
   6: step6,   // 填写标题和分类
   7: step7,   // 选择品牌
-  8: step8,   // 填写货号和性别
+  8: step8,   // 填写货号
   9: step9PriceStock,   // 价格库存填写
   10: step10Crop, // 3:4主图裁剪
   11: step11Detail, // 详情模版
