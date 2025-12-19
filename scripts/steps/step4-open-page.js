@@ -763,7 +763,9 @@ const step4 = async (ctx) => {
     ctx.logger.info(`模板商品ID: ${templateItemId}`);
 
     const brandKey = (brand || '').toLowerCase();
-    const directUrl = (store === 'female' && brandKey.includes('archivio'))
+    const shouldUseDirectUrl = (store === 'female' && brandKey.includes('archivio')) ||
+      (store === 'male' && brandKey.includes('ping'));
+    const directUrl = shouldUseDirectUrl
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
       : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);

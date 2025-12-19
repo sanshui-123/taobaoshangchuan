@@ -576,6 +576,7 @@ async function step4(ctx) {
       const brandKey = brand.toLowerCase();
       // 男店配置
       const maleDefault = process.env.TEMPLATE_ITEM_ID_MALE || process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
+      const malePing = process.env.TEMPLATE_ITEM_ID_PING || '921175768835';
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
@@ -604,6 +605,7 @@ async function step4(ctx) {
       }
 
       // 默认男店
+      if (brandKey.includes('ping')) return malePing;
       if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
       if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return maleLeCoq;
@@ -619,7 +621,9 @@ async function step4(ctx) {
     ctx.logger.info(`店铺: ${store === 'female' ? '女店' : '男店'} | 品牌: ${brand || '(空)'}`);
     ctx.logger.info(`使用模板ID: ${templateItemId}`);
 
-    const publishUrl = (store === 'female' && brandKey.includes('archivio'))
+    const shouldUseDirectUrl = (store === 'female' && brandKey.includes('archivio')) ||
+      (store === 'male' && brandKey.includes('ping'));
+    const publishUrl = shouldUseDirectUrl
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
       : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${publishUrl}`);
