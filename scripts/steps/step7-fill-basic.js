@@ -136,13 +136,26 @@ const step7 = async (ctx) => {
     ctx.logger.info('  使用语义定位: text=货号 + following input');
 
     let skuInput;
-    // 特例：高尔夫球服类目（路径包含"高尔夫球服"）下，货号字段在类目属性区域，尝试匹配 sell-field-p-* 节点
+    // 特例：高尔夫类目在不同模板下，货号字段可能出现在「类目属性」区域（sell-field-p-*），而不是常规的基础信息输入框
     const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
     const isGolfBallCategory = (categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand || isMasterBunnyBrand;
+    const isGolfTopCategory = !!(categoryPath && categoryPath.includes('高尔夫上装'));
 
     // 方法1：通过文本定位（适用于span/div/label等）
     try {
-      if (isGolfBallCategory) {
+      if (isGolfTopCategory) {
+        ctx.logger.info(`  检测到类目包含“高尔夫上装”，货号字段在类目属性区域（${categoryPath.trim()}）`);
+
+        // 只在 sell-field-p-* 内定位包含“货号”的字段，避免误写到「店铺中分类」等 next-select 输入框
+        const skuField = page
+          .locator('[id^="sell-field-p-"]')
+          .filter({ hasText: '货号' })
+          .first();
+
+        skuInput = skuField.locator('input, textarea').first();
+        await skuInput.waitFor({ state: 'attached', timeout: 3000 });
+        ctx.logger.success('  ✅ 类目属性货号（高尔夫上装）定位成功');
+      } else if (isGolfBallCategory) {
         ctx.logger.info('  检测到类目包含高尔夫球服，尝试类目属性区域的货号输入框');
         skuInput = page.locator('[id^="sell-field-p-"] input, [id^="sell-field-p-"] textarea').first();
         await skuInput.waitFor({ state: 'attached', timeout: 3000 });
