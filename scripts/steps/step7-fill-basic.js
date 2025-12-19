@@ -185,6 +185,53 @@ const step7 = async (ctx) => {
       }
     }
 
+    // 🛡️ 防呆：避免误命中“店铺中分类”等 next-select 搜索输入框（会导致把货号写到错误位置）
+    try {
+      const skuMeta = await skuInput.evaluate((el) => {
+        const field = el.closest('[id^="sell-field-"]');
+        return {
+          closestFieldId: field ? field.id : '',
+          name: el.getAttribute('name') || '',
+          placeholder: el.getAttribute('placeholder') || ''
+        };
+      });
+
+      if (skuMeta.closestFieldId === 'sell-field-shopcat') {
+        ctx.logger.warn('  ⚠️ 货号定位误命中“店铺中分类”，尝试重新定位到真正的货号字段...');
+
+        // 先清理“店铺中分类”输入框中残留文本，避免影响后续
+        try {
+          const shopcatInput = page.locator('#sell-field-shopcat input').first();
+          if (await shopcatInput.count()) {
+            await shopcatInput.fill('');
+          }
+          await page.keyboard.press('Escape').catch(() => {});
+        } catch (clearErr) {
+          ctx.logger.warn(`  ⚠️ 清理“店铺中分类”残留文本失败（忽略）: ${clearErr.message}`);
+        }
+
+        // 优先：高尔夫上装类目固定字段（已观察到：sell-field-p-13021751）
+        const golfTopSkuInput = page.locator('#sell-field-p-13021751 input, #sell-field-p-13021751 textarea').first();
+        const golfTopExists = await golfTopSkuInput.count().catch(() => 0);
+        if (golfTopExists) {
+          skuInput = golfTopSkuInput;
+          ctx.logger.success('  ✅ 已切换为高尔夫上装类目货号输入框（sell-field-p-13021751）');
+        } else {
+          // 兜底：在 sell-field 容器内查找包含“货号”的字段，避免跟随 xpath=following 误命中弹层
+          const skuFieldContainer = page
+            .locator('[id^="sell-field-"]')
+            .filter({ hasText: '货号' })
+            .first();
+          const skuInput2 = skuFieldContainer.locator('input, textarea').first();
+          await skuInput2.waitFor({ state: 'attached', timeout: 3000 });
+          skuInput = skuInput2;
+          ctx.logger.success('  ✅ 已通过 sell-field 容器重新定位货号输入框');
+        }
+      }
+    } catch (e) {
+      ctx.logger.warn(`  ⚠️ 货号定位校验失败（忽略）: ${e.message}`);
+    }
+
     // 滚动到视口（货号字段可能在页面下方）
     ctx.logger.info('  滚动到货号字段...');
     await skuInput.scrollIntoViewIfNeeded();
