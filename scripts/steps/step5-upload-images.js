@@ -323,6 +323,218 @@ async function waitForMainImagesFilled(page, ctx, timeoutMs) {
 }
 
 /**
+ * 获取 1:1 主图区域根节点（避免误点到视频上传位）
+ * @returns {Promise<{root: import('playwright').Locator, selector: string} | null>}
+ */
+async function getMainImagesRoot(page) {
+  const selectors = [
+    '#struct-mainImagesGroup',
+    '#mainImagesGroup',
+    '[id*="mainImagesGroup"]',
+    '.sell-field-mainImagesGroup',
+    '[class*="mainImagesGroup"]'
+  ];
+
+  for (const selector of selectors) {
+    const root = page.locator(selector).first();
+    const visible = await root.isVisible().catch(() => false);
+    if (visible) return { root, selector };
+  }
+
+  // 最后兜底：用“1:1主图”标题定位邻近容器
+  try {
+    const label = page.getByText('1:1主图', { exact: false }).first();
+    if (await label.isVisible().catch(() => false)) {
+      const fallback = label.locator('xpath=following::*[contains(@id,"mainImagesGroup")][1]').first();
+      if (await fallback.isVisible().catch(() => false)) {
+        return { root: fallback, selector: 'label->following mainImagesGroup' };
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return null;
+}
+
+/**
+ * 获取“图片操作”菜单（裁剪/替换/删除），并返回可见的那个
+ */
+async function getVisibleImageOperatorMenu(page) {
+  const menus = page.locator('ul.sell-component-material-item-media-operator, ul.next-menu.sell-component-material-item-media-operator');
+  const count = await menus.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const menu = menus.nth(i);
+    if (await menu.isVisible().catch(() => false)) return menu;
+  }
+  return null;
+}
+
+/**
+ * 删除一个主图位中的已有图片（适配千牛新 UI：hover 后出现“裁剪/替换/删除”菜单）
+ * @returns {Promise<boolean>}
+ */
+async function deleteExistingImageInTile(tile, page, ctx, index) {
+  try {
+    await tile.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+
+    // 先 hover 触发菜单出现（新 UI）
+    await tile.hover({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+
+    let menu = await getVisibleImageOperatorMenu(page);
+    if (!menu) {
+      // 部分版本需要点一下触发器
+      const trigger = tile.locator('.trigger-item').first();
+      if (await trigger.isVisible({ timeout: 300 }).catch(() => false)) {
+        await trigger.click({ force: true, timeout: 1500 }).catch(() => {});
+      } else {
+        await tile.click({ force: true, timeout: 1500 }).catch(() => {});
+      }
+      await page.waitForTimeout(200);
+      menu = await getVisibleImageOperatorMenu(page);
+    }
+
+    if (!menu) {
+      ctx.logger.warn(`  ⚠️ 未找到图片操作菜单，跳过删除（主图位${index + 1}）`);
+      return false;
+    }
+
+    const deleteItem = menu.getByText('删除', { exact: true }).first();
+    if (!await deleteItem.isVisible({ timeout: 800 }).catch(() => false)) {
+      ctx.logger.warn(`  ⚠️ 未找到“删除”菜单项，跳过删除（主图位${index + 1}）`);
+      return false;
+    }
+
+    await deleteItem.click({ force: true, timeout: 2000 });
+    await page.waitForTimeout(600);
+
+    // 极少数情况下会弹确认框
+    const confirmBtn = page.locator('.next-dialog-footer button.next-btn-primary:has-text("确定"), .next-dialog-footer button.next-btn-primary:has-text("确认")').first();
+    if (await confirmBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+      await confirmBtn.click({ force: true, timeout: 1500 }).catch(() => {});
+      await page.waitForTimeout(600);
+    }
+
+    // 等待该 tile 变成空态
+    const emptyVisible = await tile.locator('div.image-empty, .main-content.dashed').first()
+      .isVisible()
+      .catch(() => false);
+    if (emptyVisible) return true;
+
+    const imgCount = await tile.locator('img').count().catch(() => 0);
+    return imgCount === 0;
+  } catch (e) {
+    ctx.logger.warn(`  ⚠️ 删除主图位${index + 1}失败: ${e.message}`);
+    return false;
+  }
+}
+
+/**
+ * 千牛新版本：模板可能自带主图，需先清理，否则会导致 Step5 找不到“上传图片”位并误点视频上传
+ */
+async function clearMainImagesIfNeeded(page, ctx) {
+  const rootRes = await getMainImagesRoot(page);
+  if (!rootRes) return { cleared: 0, root: null };
+
+  const { root, selector } = rootRes;
+  await root.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(200);
+
+  // 新 UI：主图位为 .drag-item
+  const dragTiles = root.locator('.drag-item');
+  const dragCount = await dragTiles.count().catch(() => 0);
+
+  let cleared = 0;
+
+  if (dragCount > 0) {
+    // 先扫描有图的 tile 并逐个删除（最多 5 张）
+    for (let i = 0; i < Math.min(dragCount, 6); i++) {
+      const tile = dragTiles.nth(i);
+      const imgCount = await tile.locator('img').count().catch(() => 0);
+      if (imgCount > 0) {
+        ctx.logger.warn(`  ⚠️ 检测到主图位${i + 1}已存在模板图片，先删除再上传`);
+        const ok = await deleteExistingImageInTile(tile, page, ctx, i);
+        if (ok) cleared++;
+      }
+    }
+
+    if (cleared > 0) {
+      ctx.logger.info(`  ✅ 已清理模板预置主图: ${cleared} 张（${selector}）`);
+    }
+
+    return { cleared, root };
+  }
+
+  // 旧 UI：不做强删，仅返回 root 供后续点击使用（避免误点视频）
+  return { cleared: 0, root };
+}
+
+/**
+ * 只在 1:1 主图区域内点击“上传图片”（优先新 UI：#struct-mainImagesGroup .drag-item）
+ */
+async function clickMainImageUploadSlot(page, ctx) {
+  const rootRes = await getMainImagesRoot(page);
+  if (!rootRes) return false;
+
+  const { root, selector } = rootRes;
+  await root.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(200);
+
+  // 新 UI：使用第一个 drag-item（已确保清理后为空）
+  const tiles = root.locator('.drag-item');
+  const tileCount = await tiles.count().catch(() => 0);
+  if (tileCount > 0) {
+    const firstTile = tiles.first();
+    await firstTile.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(120);
+
+    const empty = firstTile.locator('div.image-empty').first();
+    if (await empty.isVisible({ timeout: 300 }).catch(() => false)) {
+      await empty.click({ force: true, timeout: 5000 }).catch(async (e) => {
+        ctx.logger.warn(`常规点击主图空位失败，尝试强制点击: ${e.message}`);
+        await empty.click({ force: true, timeout: 5000 });
+      });
+      ctx.logger.success(`✅ 已点击1:1主图上传位（${selector} -> .drag-item -> div.image-empty）`);
+      return true;
+    }
+
+    // 没有 image-empty（极端情况），点击 tile 本身
+    await firstTile.click({ force: true, timeout: 5000 }).catch(async (e) => {
+      ctx.logger.warn(`常规点击主图位失败，尝试强制点击: ${e.message}`);
+      await firstTile.click({ force: true, timeout: 5000 });
+    });
+    ctx.logger.success(`✅ 已点击1:1主图上传位（${selector} -> .drag-item）`);
+    return true;
+  }
+
+  // 旧 UI fallback：只在 root 内找 placeholder，避免匹配到视频上传
+  const fallbackSelectors = [
+    'div.image-empty',
+    '.upload-pic-box.placeholder',
+    '.sell-component-info-wrapper-component-child div.placeholder',
+    'div.placeholder',
+    '[data-testid="upload-placeholder"]',
+    '[class*="upload-trigger"]'
+  ];
+
+  for (const sel of fallbackSelectors) {
+    const candidate = root.locator(sel).first();
+    if (await candidate.isVisible({ timeout: 200 }).catch(() => false)) {
+      await candidate.click({ timeout: 5000 }).catch(async (e) => {
+        ctx.logger.warn(`常规点击失败，尝试强制点击: ${e.message}`);
+        await candidate.click({ force: true, timeout: 5000 });
+      });
+      ctx.logger.success(`✅ 已点击1:1主图上传位（${selector} -> ${sel}）`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * 探测素材库弹窗里是否存在“确定/完成/使用”等确认按钮（快速判定，避免无确认按钮时长时间空转）
  * @returns {Promise<boolean>}
  */
@@ -844,23 +1056,9 @@ const step5 = async (ctx) => {
 	      ctx.logger.warn('调试截图失败');
 	    }
 
-    // 步骤2：禁用其他上传位，防止误点击
-    ctx.logger.info('\n[步骤2] 禁用其他上传位');
-    await page.evaluate(() => {
-      // 找到所有上传框
-      const uploadBoxes = document.querySelectorAll('.upload-pic-box, [class*="upload"], .sell-field-mainImagesGroup .upload-item');
-      uploadBoxes.forEach((box, index) => {
-        if (index > 0) {
-          box.style.pointerEvents = 'none';
-          box.style.opacity = '0.5';
-        }
-      });
-    });
-    ctx.logger.success('✅ 已禁用其他上传位');
-
-    // 禁用后再次滚动，防止页面跳动
-    await scrollToTop();
-    await page.waitForTimeout(500);
+    // 步骤2：清理模板预置主图（千牛新 UI 会默认带图，必须先删，否则会误点到视频上传位）
+    ctx.logger.info('\n[步骤2] 检查并清理模板预置主图');
+    await clearMainImagesIfNeeded(page, ctx).catch(() => {});
 
     // 步骤3：点击第一个白底图上传位
     ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
@@ -880,67 +1078,7 @@ const step5 = async (ctx) => {
     };
     page.once('filechooser', fileChooserHandler);
 
-    // 多种可能的选择器，优先级从高到低（根据实际DOM结构优化）
-    const uploadBoxSelectors = [
-      // 优先：精确的class选择器
-      '.sell-component-info-wrapper-component-child div.placeholder',
-      'div.placeholder',
-      '[data-testid="upload-placeholder"]',
-      '.upload-pic-box.placeholder',
-
-      // 次选：通过结构和文本查找
-      '.sell-field-mainImagesGroup .upload-pic-box:first-child',
-      '.upload-pic-box:first-child',
-      '[class*="mainImages"] .upload-item:first-child',
-      '[class*="mainImagesGroup"] div:first-child',
-
-      // 备选：通过文本内容查找
-      'div:has-text("上传图片")',
-      'button:has-text("上传图片")',
-      '[class*="upload"]:has-text("上传图片")',
-
-      // 最后：通过父容器查找第一个子元素
-      '.white-bg-image .upload-box:first-child',
-      '#struct-mainImagesGroup div[class*="upload"]:first-child',
-
-      // 兜底：图片上传icon
-      'svg[class*="upload"]',
-      'i[class*="upload"]'
-    ];
-
-    let uploadBoxClicked = false;
-    for (const selector of uploadBoxSelectors) {
-      try {
-        const locator = page.locator(selector).first();
-        const count = await locator.count();
-        if (count > 0) {
-          // 增强点击策略：
-          // 1. 确保元素可见并滚动到视图中
-          await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
-
-          // 2. 等待元素稳定（动画完成）
-          await page.waitForTimeout(300);
-
-          // 3. 等待元素可交互
-          await locator.waitFor({ state: 'visible', timeout: 3000 });
-
-          // 4. 尝试点击（如果被遮挡，使用force）
-          try {
-            await locator.click({ timeout: 5000 });
-          } catch (clickErr) {
-            ctx.logger.warn(`常规点击失败，尝试强制点击: ${clickErr.message}`);
-            await locator.click({ force: true, timeout: 5000 });
-          }
-
-          ctx.logger.success(`✅ 已点击第一个上传位（${selector}）`);
-          uploadBoxClicked = true;
-          break;
-        }
-      } catch (e) {
-        ctx.logger.warn(`尝试选择器失败: ${selector} - ${e.message}`);
-        continue;
-      }
-    }
+    const uploadBoxClicked = await clickMainImageUploadSlot(page, ctx);
 
     if (!uploadBoxClicked) {
       // 移除未触发的事件监听器

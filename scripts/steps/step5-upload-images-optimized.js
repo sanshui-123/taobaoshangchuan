@@ -190,29 +190,80 @@ async function step5(ctx) {
   // 步骤3：点击第一个白底图上传位
   ctx.logger.info('\n[步骤3] 点击第一个白底图上传位');
 
-  const uploadSelectors = [
-    '.sell-component-info-wrapper-component-child div.placeholder',
-    '.component-container.radio-wrapper div.component div.placeholder',
-    '[class*="upload-trigger"]'
+  // ✅ 千牛新版本：模板可能自带主图，导致找不到“上传图片”位并误点视频上传位
+  // 处理策略：只在 1:1 主图区域内操作；如果首位有图，先 hover 打开菜单并删除，再点击空位打开素材库
+  const mainRootSelectors = [
+    '#struct-mainImagesGroup',
+    '#mainImagesGroup',
+    '[id*="mainImagesGroup"]',
+    '.sell-field-mainImagesGroup',
+    '[class*="mainImagesGroup"]'
   ];
 
-  let uploadBoxClicked = false;
-  for (const selector of uploadSelectors) {
-    try {
-      const element = await page.$(selector);
-      if (element) {
-        await element.click();
-        ctx.logger.info(`✅ 已点击第一个上传位（${selector}）`);
-        uploadBoxClicked = true;
-        break;
+  const findRoot = async () => {
+    for (const sel of mainRootSelectors) {
+      const root = page.locator(sel).first();
+      if (await root.isVisible().catch(() => false)) return { root, sel };
+    }
+    return null;
+  };
+
+  const getVisibleMenu = async () => {
+    const menus = page.locator('ul.sell-component-material-item-media-operator, ul.next-menu.sell-component-material-item-media-operator');
+    const c = await menus.count().catch(() => 0);
+    for (let i = 0; i < c; i++) {
+      const m = menus.nth(i);
+      if (await m.isVisible().catch(() => false)) return m;
+    }
+    return null;
+  };
+
+  const rootRes = await findRoot();
+  if (!rootRes) throw new Error('未找到1:1主图区域，无法定位上传位');
+
+  const { root, sel } = rootRes;
+  await root.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(200);
+
+  const firstTile = root.locator('.drag-item').first();
+  const hasImg = await firstTile.locator('img').count().then(n => n > 0).catch(() => false);
+  if (hasImg) {
+    ctx.logger.warn('  ⚠️ 检测到模板预置主图，先删除再上传');
+    await firstTile.scrollIntoViewIfNeeded().catch(() => {});
+    await firstTile.hover().catch(() => {});
+    await page.waitForTimeout(200);
+
+    let menu = await getVisibleMenu();
+    if (!menu) {
+      const trigger = firstTile.locator('.trigger-item').first();
+      if (await trigger.isVisible().catch(() => false)) {
+        await trigger.click({ force: true }).catch(() => {});
+      } else {
+        await firstTile.click({ force: true }).catch(() => {});
       }
-    } catch (e) {
-      continue;
+      await page.waitForTimeout(200);
+      menu = await getVisibleMenu();
+    }
+
+    if (menu) {
+      await menu.getByText('删除', { exact: true }).first().click({ force: true }).catch(() => {});
+      await page.waitForTimeout(600);
     }
   }
 
-  if (!uploadBoxClicked) {
-    throw new Error('无法找到上传位');
+  const empty = firstTile.locator('div.image-empty').first();
+  if (await empty.isVisible().catch(() => false)) {
+    await empty.click({ force: true });
+    ctx.logger.info(`✅ 已点击1:1主图上传位（${sel} -> .drag-item -> div.image-empty）`);
+  } else {
+    // 旧 UI fallback：限定在 root 内找 placeholder，避免命中视频上传位
+    const fallback = root.locator('div.image-empty, div.placeholder, .upload-pic-box.placeholder, [class*="upload-trigger"]').first();
+    if (await fallback.isVisible().catch(() => false)) {
+      await fallback.click({ force: true });
+      ctx.logger.info(`✅ 已点击1:1主图上传位（${sel} -> fallback）`);
+    } else {
+      throw new Error('无法在1:1主图区域内找到上传位');
+    }
   }
 
   ctx.logger.info('等待弹窗开始出现...');
