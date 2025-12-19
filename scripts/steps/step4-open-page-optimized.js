@@ -591,7 +591,7 @@ async function step4(ctx) {
       const femaleMoveSport = process.env.TEMPLATE_ITEM_ID_FEMALE_MOVESPORT || '998736086966';
       const femaleMasterBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_MASTER_BUNNY || '998750666072';
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
-      const femaleArchivio = process.env.TEMPLATE_ITEM_ID_FEMALE_ARCHIVIO || '887494790347';
+      const femaleArchivio = process.env.TEMPLATE_ITEM_ID_FEMALE_ARCHIVIO || '1005864688464';
 
       if (store === 'female') {
       if (brandKey.includes('archivio')) return femaleArchivio;
@@ -621,11 +621,14 @@ async function step4(ctx) {
     ctx.logger.info(`店铺: ${store === 'female' ? '女店' : '男店'} | 品牌: ${brand || '(空)'}`);
     ctx.logger.info(`使用模板ID: ${templateItemId}`);
 
-    const shouldUseDirectUrl = (store === 'female' && brandKey.includes('archivio')) ||
-      (store === 'male' && brandKey.includes('ping'));
-    const publishUrl = shouldUseDirectUrl
-      ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
-      : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+    const isFemaleArchivio = store === 'female' && brandKey.includes('archivio');
+    const isMalePing = store === 'male' && brandKey.includes('ping');
+
+    const publishUrl = isFemaleArchivio
+      ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac2c1bswyTpK&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
+      : isMalePing
+        ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
+        : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${publishUrl}`);
 
     await page.goto(publishUrl, {
