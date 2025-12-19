@@ -401,12 +401,13 @@ async function deleteExistingImageInTile(tile, page, ctx, index) {
       return false;
     }
 
-    const deleteItem = menu.getByText('删除', { exact: true }).first();
+    const deleteItem = menu.getByText('删除', { exact: false }).first();
     if (!await deleteItem.isVisible({ timeout: 800 }).catch(() => false)) {
       ctx.logger.warn(`  ⚠️ 未找到“删除”菜单项，跳过删除（主图位${index + 1}）`);
       return false;
     }
 
+    await deleteItem.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
     await deleteItem.click({ force: true, timeout: 2000 });
     await page.waitForTimeout(600);
 
@@ -452,9 +453,14 @@ async function clearMainImagesIfNeeded(page, ctx) {
     // 先扫描有图的 tile 并逐个删除（最多 5 张）
     for (let i = 0; i < Math.min(dragCount, 6); i++) {
       const tile = dragTiles.nth(i);
-      const imgCount = await tile.locator('img').count().catch(() => 0);
-      if (imgCount > 0) {
-        ctx.logger.warn(`  ⚠️ 检测到主图位${i + 1}已存在模板图片，先删除再上传`);
+      const emptyVisible = await tile
+        .locator('div.image-empty, .main-content.dashed')
+        .first()
+        .isVisible()
+        .catch(() => false);
+      // 只要不是空态，就按“已有图片/残留”处理（避免因为 DOM 结构变化误判）
+      if (!emptyVisible) {
+        ctx.logger.warn(`  ⚠️ 检测到主图位${i + 1}非空态，先删除再上传`);
         const ok = await deleteExistingImageInTile(tile, page, ctx, i);
         if (ok) cleared++;
       }

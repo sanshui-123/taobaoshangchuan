@@ -226,8 +226,12 @@ async function step5(ctx) {
   await page.waitForTimeout(200);
 
   const firstTile = root.locator('.drag-item').first();
-  const hasImg = await firstTile.locator('img').count().then(n => n > 0).catch(() => false);
-  if (hasImg) {
+  const emptyVisible = await firstTile
+    .locator('div.image-empty, .main-content.dashed')
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (!emptyVisible) {
     ctx.logger.warn('  ⚠️ 检测到模板预置主图，先删除再上传');
     await firstTile.scrollIntoViewIfNeeded().catch(() => {});
     await firstTile.hover().catch(() => {});
@@ -246,7 +250,9 @@ async function step5(ctx) {
     }
 
     if (menu) {
-      await menu.getByText('删除', { exact: true }).first().click({ force: true }).catch(() => {});
+      const del = menu.getByText('删除', { exact: false }).first();
+      await del.scrollIntoViewIfNeeded().catch(() => {});
+      await del.click({ force: true }).catch(() => {});
       await page.waitForTimeout(600);
     }
   }
