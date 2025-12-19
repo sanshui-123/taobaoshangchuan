@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const { closeAllPopups } = require('../utils/advert-handler');
+const { waitForTaobaoHumanVerify } = require('../utils/taobao-human-verify');
 
 /**
  * 如果出现裁剪弹窗，点击"确定"继续
@@ -981,7 +982,7 @@ const step5 = async (ctx) => {
 	    return;
 	  }
 
-	  // 防御：重试/手动切页后 page1 可能不在发布页，优先尝试回到 Step4 保存的 publishPageUrl
+	    // 防御：重试/手动切页后 page1 可能不在发布页，优先尝试回到 Step4 保存的 publishPageUrl
 	  try {
 	    await page.bringToFront().catch(() => {});
 	    const publishPageUrl = taskCache?.browserContext?.publishPageUrl;
@@ -994,6 +995,7 @@ const step5 = async (ctx) => {
 	      await page.waitForTimeout(800);
 	    }
 	    await closeAllPopups(page, 2).catch(() => {});
+	    await waitForTaobaoHumanVerify(page, ctx.logger);
 	  } catch (e) {
 	    // ignore
 	  }

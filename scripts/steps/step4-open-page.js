@@ -3,6 +3,7 @@ const path = require('path');
 const { loadTaskCache, saveTaskCache, updateStepStatus } = require('../utils/cache');
 const browserManager = require('../utils/browser-manager');
 const { closeAllPopups } = require('../utils/advert-handler');
+const { waitForTaobaoHumanVerify } = require('../utils/taobao-human-verify');
 
 // 通用模板的固定尺码顺序（包含8个尺码，含均码）
 const TEMPLATE_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '均码'];
@@ -789,6 +790,10 @@ const step4 = async (ctx) => {
       waitUntil: 'domcontentloaded',
       timeout: timeout
     });
+
+    // 如果触发了淘宝安全验证（滑动验证码），暂停等待人工完成（不自动破解）
+    await page.waitForTimeout(500);
+    await waitForTaobaoHumanVerify(page, ctx.logger);
 
     try {
       await page.waitForLoadState('networkidle', { timeout: 5000 });
