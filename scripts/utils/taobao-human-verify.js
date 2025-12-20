@@ -5,6 +5,10 @@ async function isTaobaoHumanVerifyVisible(page) {
     // 常见滑块容器（阿里系 noCaptcha）
     '.nc-container',
     '#nc_1_wrapper',
+    '#nc_1',
+    '#nc_1_n1z',
+    'span.nc-lang-cnt',
+    '.warnning-text',
     '#nocaptcha',
     // 一些页面会用 iframe 承载验证
     'iframe[src*="captcha"], iframe[src*="verify"], iframe[name*="captcha"], iframe[name*="verify"]',
@@ -76,4 +80,3 @@ module.exports = {
   isTaobaoHumanVerifyVisible,
   waitForTaobaoHumanVerify
 };
-
