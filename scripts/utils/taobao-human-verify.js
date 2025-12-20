@@ -1,27 +1,39 @@
 const path = require('path');
 
 async function isTaobaoHumanVerifyVisible(page) {
-  const candidates = [
-    // 常见滑块容器（阿里系 noCaptcha）
+  const isVisible = async (selector) => {
+    return await page.locator(selector).first().isVisible({ timeout: 300 }).catch(() => false);
+  };
+
+  // 1) 先用“高置信度文案”判断（避免误把其它弹窗当验证码）
+  const instructionText = await isVisible(
+    'text=/请完成验证|安全验证|滑动验证|向右滑动|拖动滑块|拖动到最右边|请按住滑块|完成验证/'
+  );
+  if (instructionText) return true;
+
+  // 2) 再检查 noCaptcha 关键容器/滑块按钮
+  const containerSelectors = [
     '.nc-container',
     '#nc_1_wrapper',
-    '#nc_1',
-    '#nc_1_n1z',
-    'span.nc-lang-cnt',
-    '.warnning-text',
-    '#nocaptcha',
-    // 一些页面会用 iframe 承载验证
-    'iframe[src*="captcha"], iframe[src*="verify"], iframe[name*="captcha"], iframe[name*="verify"]',
-    // 文案兜底（不同渠道可能文字不同）
-    'text=/请完成验证|安全验证|滑动验证|向右滑动|拖动滑块|验证码/'
+    '#nocaptcha'
   ];
+  for (const selector of containerSelectors) {
+    if (!await isVisible(selector)) continue;
 
-  for (const selector of candidates) {
-    const visible = await page.locator(selector).first().isVisible({ timeout: 300 }).catch(() => false);
-    if (visible) return true;
+    // 容器可见时，再确认滑块按钮/提示文案可见（避免被普通提示/上传结果误判）
+    const hasHandle = await isVisible('#nc_1_n1z, [id$="_n1z"], [class*="nc_iconfont"], [class*="nc-lang-cnt"]');
+    if (hasHandle) return true;
   }
 
-  return false;
+  // 3) 一些页面会用 iframe 承载验证（只做 url 关键词判定，避免宽泛误判）
+  const captchaIframe = await isVisible(
+    'iframe[src*="captcha"], iframe[src*="verify"], iframe[name*="captcha"], iframe[name*="verify"]'
+  );
+  if (captchaIframe) return true;
+
+  // 4) 最后兜底：仅当“nc_”相关元素可见时认为是验证码
+  const ncVisible = await isVisible('#nc_1, #nc_1_n1z, [id^="nc_"]');
+  return ncVisible;
 }
 
 /**
