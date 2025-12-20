@@ -783,9 +783,11 @@ const step4 = async (ctx) => {
 
     const directUrl = isFemaleArchivio
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac2c1bswyTpK&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
-      : (isMalePing || isMaleArchivio)
-        ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
-        : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+      : isMaleArchivio
+        ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.384c645eFC51Q0&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
+        : isMalePing
+          ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
+          : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);
 
     await page.goto(directUrl, {
