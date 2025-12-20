@@ -112,16 +112,21 @@ const step11Detail = async (ctx) => {
     await page.locator('#panel_edit').getByText('模板', { exact: true }).click();
     await page.waitForTimeout(500);
 
-    // 按品牌选择模板：PEARLY GATES 用专属模板，其余用默认
+    // 按品牌选择模板：PEARLY GATES 用专属模板，其余用默认（男店 Archivio 用 ada小狗牌）
+    const store = (process.env.TAOBAO_STORE || 'male').trim().toLowerCase(); // male / female
     const brandKey = (productData.brand || '').trim().toLowerCase();
     const defaultTemplate = process.env.DETAIL_TEMPLATE_DEFAULT || '卡-LL=';
     const pingTemplate = process.env.DETAIL_TEMPLATE_PING || '卡-LL=';
     const mizunoTemplate = process.env.DETAIL_TEMPLATE_MIZUNO || '卡-LL=';
-    const templateName = brandKey === 'pearly gates'
-      ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
-      : (brandKey.includes('ping')
-        ? pingTemplate
-        : ((brandKey.includes('mizuno') || brandKey.includes('美津浓')) ? mizunoTemplate : defaultTemplate));
+    const maleArchivioTemplate = process.env.DETAIL_TEMPLATE_MALE_ARCHIVIO || 'ada小狗牌';
+    const isMaleArchivio = store === 'male' && brandKey.includes('archivio');
+    const templateName = isMaleArchivio
+      ? maleArchivioTemplate
+      : (brandKey === 'pearly gates'
+        ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
+        : (brandKey.includes('ping')
+          ? pingTemplate
+          : ((brandKey.includes('mizuno') || brandKey.includes('美津浓')) ? mizunoTemplate : defaultTemplate)));
 
     const templateOption = page.getByText(templateName, { exact: true });
     await templateOption.click();
