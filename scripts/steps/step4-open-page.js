@@ -911,9 +911,9 @@ const step4 = async (ctx) => {
         // 步骤1：进入销售信息页签
         await enterSalesInfo(page1, ctx.logger);
 
-        // 步骤2：应用销售属性模板（女店Archivio：archivio；其他：通用模版）
-        // 注意：ada小狗牌是“详情模板”（Step11），不是销售属性模板
-        const salesTemplateName = isFemaleArchivio ? 'archivio' : '通用模版';
+        // 步骤2：应用销售属性模板（默认：通用模版）
+        // 注意：ada小狗牌/archivio 是“详情模板”（Step11），不是销售属性模板
+        const salesTemplateName = '通用模版';
         await applyGeneralTemplate(page1, ctx.logger, { templateName: salesTemplateName });
 
         // 步骤3：处理颜色分类

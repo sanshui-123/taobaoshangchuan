@@ -727,8 +727,8 @@ async function step4(ctx) {
 
     // 执行销售属性设置
     await enterSalesInfo(page1, ctx.logger);
-    // 注意：ada小狗牌是“详情模板”（Step11），不是销售属性模板
-    const salesTemplateName = isFemaleArchivio ? 'archivio' : '通用模版';
+    // 注意：ada小狗牌/archivio 是“详情模板”（Step11），不是销售属性模板
+    const salesTemplateName = '通用模版';
     await applyGeneralTemplate(page1, ctx.logger, { templateName: salesTemplateName });
     await processColors(page1, colors, ctx.logger);
     await processSizes(page1, sizes, ctx.logger);
