@@ -719,7 +719,7 @@ const step4 = async (ctx) => {
       const maleDefault = process.env.TEMPLATE_ITEM_ID_MALE || process.env.TEMPLATE_ITEM_ID ||
         (ctx.taskCache && (ctx.taskCache.templateItemId || ctx.taskCache.taobaoItemId));
       const malePing = '921175768835';
-      const maleArchivio = process.env.TEMPLATE_ITEM_ID_MALE_ARCHIVIO || '1005978008237';
+      const maleArchivio = process.env.TEMPLATE_ITEM_ID_MALE_ARCHIVIO || '1005271729109';
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
@@ -783,11 +783,9 @@ const step4 = async (ctx) => {
 
     const directUrl = isFemaleArchivio
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac2c1bswyTpK&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
-      : isMalePing
+      : (isMalePing || isMaleArchivio)
         ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
-        : isMaleArchivio
-          ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.384c645eFC51Q0&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
-          : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+        : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);
 
     await page.goto(directUrl, {
