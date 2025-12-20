@@ -119,9 +119,13 @@ const step11Detail = async (ctx) => {
     const pingTemplate = process.env.DETAIL_TEMPLATE_PING || '卡-LL=';
     const mizunoTemplate = process.env.DETAIL_TEMPLATE_MIZUNO || '卡-LL=';
     const maleArchivioTemplate = process.env.DETAIL_TEMPLATE_MALE_ARCHIVIO || 'ada小狗牌';
+    const femaleArchivioTemplate = process.env.DETAIL_TEMPLATE_FEMALE_ARCHIVIO || 'archivio';
     const isMaleArchivio = store === 'male' && brandKey.includes('archivio');
+    const isFemaleArchivio = store === 'female' && brandKey.includes('archivio');
     const templateName = isMaleArchivio
       ? maleArchivioTemplate
+      : isFemaleArchivio
+        ? femaleArchivioTemplate
       : (brandKey === 'pearly gates'
         ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
         : (brandKey.includes('ping')
