@@ -788,7 +788,6 @@ const step4 = async (ctx) => {
         : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);
 
-    await page.bringToFront().catch(() => {});
     await page.goto(directUrl, {
       waitUntil: 'domcontentloaded',
       timeout: timeout

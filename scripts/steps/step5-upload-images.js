@@ -982,13 +982,12 @@ const step5 = async (ctx) => {
 	    return;
 	  }
 
-	    // 防御：重试/手动切页后 page1 可能不在发布页，优先尝试回到 Step4 保存的 publishPageUrl
-	  try {
-	    await page.bringToFront().catch(() => {});
-	    const publishPageUrl = taskCache?.browserContext?.publishPageUrl;
-	    const currentUrl = page.url();
-	    const looksLikePublish = /\/sell\/v2\/publish|publish\.htm/i.test(currentUrl);
-	    if (publishPageUrl && !looksLikePublish) {
+		  // 防御：重试/手动切页后 page1 可能不在发布页，优先尝试回到 Step4 保存的 publishPageUrl
+		  try {
+		    const publishPageUrl = taskCache?.browserContext?.publishPageUrl;
+		    const currentUrl = page.url();
+		    const looksLikePublish = /\/sell\/v2\/publish|publish\.htm/i.test(currentUrl);
+		    if (publishPageUrl && !looksLikePublish) {
 	      ctx.logger.warn(`⚠️ 当前页面可能不是发布页（${currentUrl}），尝试回到发布页: ${publishPageUrl}`);
 	      const timeout = parseInt(process.env.TAOBAO_TIMEOUT || '30000');
 	      await page.goto(publishPageUrl, { waitUntil: 'domcontentloaded', timeout }).catch(() => {});
