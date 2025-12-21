@@ -1,5 +1,4 @@
-const fs = require('fs');
-const path = require('path');
+const { loadTaskCache, saveTaskCache } = require('../utils/cache');
 
 /**
  * 步骤11：填写详情模板（优化版）
@@ -12,6 +11,12 @@ async function step11Detail(ctx) {
   if (!page) {
     throw new Error('页面未初始化');
   }
+
+  const taskCache = loadTaskCache(productId);
+  if (!taskCache.productData) {
+    throw new Error('缓存中没有商品信息');
+  }
+  const productData = taskCache.productData;
 
   ctx.logger.info('\n========== 填写详情模板 ==========');
 
@@ -31,15 +36,51 @@ async function step11Detail(ctx) {
 
     // 步骤2：选择模板
     ctx.logger.info('\n[步骤2] 选择模板');
-    const templateSelector = 'span:has-text("卡-LL=")';
-    const templateElement = page.locator(templateSelector).first();
+    const store = (process.env.TAOBAO_STORE || 'male').trim().toLowerCase();
+    const brandKey = (productData.brand || '').trim().toLowerCase();
+    const defaultTemplate = process.env.DETAIL_TEMPLATE_DEFAULT || '卡-LL=';
+    const pingTemplate = process.env.DETAIL_TEMPLATE_PING || '卡-LL=';
+    const mizunoTemplate = process.env.DETAIL_TEMPLATE_MIZUNO || '卡-LL=';
+    const maleArchivioTemplate = process.env.DETAIL_TEMPLATE_MALE_ARCHIVIO || 'ada小狗牌';
+    const femaleArchivioTemplate = process.env.DETAIL_TEMPLATE_FEMALE_ARCHIVIO || 'archivio';
+    const isMaleArchivio = store === 'male' && brandKey.includes('archivio');
+    const isFemaleArchivio = store === 'female' && brandKey.includes('archivio');
+    const templateName = isMaleArchivio
+      ? maleArchivioTemplate
+      : isFemaleArchivio
+        ? femaleArchivioTemplate
+        : (brandKey === 'pearly gates'
+          ? (process.env.DETAIL_TEMPLATE_PEARLY_GATES || 'MBE')
+          : (brandKey.includes('ping')
+            ? pingTemplate
+            : ((brandKey.includes('mizuno') || brandKey.includes('美津浓')) ? mizunoTemplate : defaultTemplate)));
 
-    if (await templateElement.isVisible()) {
-      await templateElement.click();
-      // 优化：减少到100ms
+    const templateButton = page.locator('#panel_edit').getByText('模板', { exact: true }).first();
+    if (await templateButton.isVisible().catch(() => false)) {
+      await templateButton.click();
       await page.waitForTimeout(100);
-      ctx.logger.info('  ✅ 已选择模板: 卡-LL=');
-    } else {
+    }
+
+    let templateSelected = false;
+    const templateElement = page.getByText(templateName, { exact: true }).first();
+    if (await templateElement.isVisible().catch(() => false)) {
+      await templateElement.click();
+      await page.waitForTimeout(100);
+      ctx.logger.info(`  ✅ 已选择模板: ${templateName}`);
+      templateSelected = true;
+    }
+
+    if (!templateSelected && templateName !== defaultTemplate) {
+      const fallbackElement = page.getByText(defaultTemplate, { exact: true }).first();
+      if (await fallbackElement.isVisible().catch(() => false)) {
+        await fallbackElement.click();
+        await page.waitForTimeout(100);
+        ctx.logger.info(`  ✅ 已选择模板: ${defaultTemplate}`);
+        templateSelected = true;
+      }
+    }
+
+    if (!templateSelected) {
       ctx.logger.warn('  未找到指定模板，使用默认模板');
     }
 
@@ -106,24 +147,16 @@ async function step11Detail(ctx) {
     // 步骤4：插入详情页文字
     ctx.logger.info('\n[步骤4] 插入详情页文字');
 
-    // 从缓存读取详情文案
-    const cacheFile = path.join(__dirname, '..', 'cache', `${productId}.json`);
     let detailText = '';
-
-    try {
-      if (fs.existsSync(cacheFile)) {
-        const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-
-        if (Array.isArray(cache.detailText)) {
-          detailText = cache.detailText.join('\n');
-          ctx.logger.info(`  从数组获取详情文案: ${cache.detailText.length} 行`);
-        } else if (cache.detailText) {
-          detailText = cache.detailText;
-          ctx.logger.info('  从字符串获取详情文案');
-        }
-      }
-    } catch (e) {
-      ctx.logger.warn(`  读取缓存失败: ${e.message}`);
+    if (Array.isArray(productData.detailCN)) {
+      detailText = productData.detailCN.join('\n');
+      ctx.logger.info(`  从数组获取详情文案: ${productData.detailCN.length} 行`);
+    } else if (productData.detailCN) {
+      detailText = productData.detailCN;
+      ctx.logger.info('  从字符串获取详情文案');
+    } else if (productData.detailText) {
+      detailText = productData.detailText;
+      ctx.logger.info('  从 detailText 字段获取详情文案');
     }
 
     if (detailText) {
@@ -144,14 +177,25 @@ async function step11Detail(ctx) {
     ctx.logger.info('\n[步骤5] 插入尺码表');
 
     let sizeTable = '';
-    try {
-      if (fs.existsSync(cacheFile)) {
-        const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        sizeTable = cache.sizeTable || '';
-        ctx.logger.info('  从 sizeTable 字段获取尺码表');
-      }
-    } catch (e) {
-      ctx.logger.warn(`  读取尺码表失败: ${e.message}`);
+    if (productData.sizeTable) {
+      sizeTable = productData.sizeTable;
+      ctx.logger.info('  从 sizeTable 字段获取尺码表');
+    } else if (productData.sizeTableText) {
+      sizeTable = productData.sizeTableText;
+      ctx.logger.info('  从 sizeTableText 字段获取尺码表');
+    } else if (productData.sizeTableCN) {
+      sizeTable = productData.sizeTableCN;
+      ctx.logger.info('  从 sizeTableCN 字段获取尺码表');
+    } else if (productData.size_table) {
+      sizeTable = productData.size_table;
+      ctx.logger.info('  从 size_table 字段获取尺码表');
+    }
+
+    if (Array.isArray(sizeTable)) {
+      sizeTable = sizeTable.join('\n');
+    }
+    if (typeof sizeTable !== 'string') {
+      sizeTable = '';
     }
 
     if (sizeTable) {
@@ -376,26 +420,18 @@ async function step11Detail(ctx) {
     // 步骤11：保存结果
     ctx.logger.info('\n[步骤11] 保存结果');
 
-    // 更新缓存
-    try {
-      const cache = fs.existsSync(cacheFile) ?
-        JSON.parse(fs.readFileSync(cacheFile, 'utf8')) : {};
+    taskCache.step11Status = {
+      completed: true,
+      timestamp: new Date().toISOString(),
+      template: templateName,
+      imageCount: imageCount
+    };
 
-      cache.step11Status = {
-        completed: true,
-        timestamp: new Date().toISOString(),
-        template: '卡-LL=',
-        imageCount: imageCount
-      };
-
-      fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 2));
-      ctx.logger.info('  ✅ 缓存已更新');
-    } catch (e) {
-      ctx.logger.warn(`  更新缓存失败: ${e.message}`);
-    }
+    saveTaskCache(productId, taskCache);
+    ctx.logger.info('  ✅ 缓存已更新');
 
     ctx.logger.info('\n========== 详情模板填写完成 ==========');
-    ctx.logger.info(`使用模板: 卡-LL=`);
+    ctx.logger.info(`使用模板: ${templateName}`);
     ctx.logger.info(`选择图片: ${imageCount} 张`);
     ctx.logger.success('\n✅ Step11 详情模板填写完成，可继续到 Step12 提交商品');
 

@@ -4,7 +4,7 @@
  */
 const { chromium } = require('playwright');
 const { steps } = require('./steps');
-const Logger = require('./utils/logger');
+const { createStepLogger } = require('./utils/logger');
 const { loadTaskCache, saveTaskCache } = require('./utils/cache');
 const fs = require('fs').promises;
 const path = require('path');
@@ -90,7 +90,7 @@ async function publishSingleProduct(productId, ctx) {
  * 主循环函数
  */
 async function runLoop() {
-  const logger = new Logger('循环发布');
+  const logger = createStepLogger('publish-loop', 'main');
 
   logger.info('\n' + '🔄'.repeat(30));
   logger.info('启动自动循环发布系统');

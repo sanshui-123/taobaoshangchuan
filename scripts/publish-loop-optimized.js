@@ -128,7 +128,7 @@ async function publishSingleProduct(productId, ctx, startTime) {
  * 主循环函数（优化版）
  */
 async function runLoop() {
-  const logger = createStepLogger('优化版循环发布');
+  const logger = createStepLogger('publish-loop-optimized', 'main');
 
   logger.info('\n' + '🚀'.repeat(30));
   logger.info('启动优化版自动循环发布系统');

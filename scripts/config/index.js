@@ -22,7 +22,7 @@ require('dotenv').config({
 exports.FEISHU_CONFIG = {
   APP_ID: process.env.FEISHU_APP_ID || '',
   APP_SECRET: process.env.FEISHU_APP_SECRET || '',
-  APP_TOKEN: process.env.FEISHU_APP_TOKEN || '',
+  APP_TOKEN: process.env.FEISHU_APP_TOKEN || process.env.FEISHU_BITTABLE_TOKEN || '',
   BITTABLE_TOKEN: process.env.FEISHU_BITTABLE_TOKEN || '',
   TABLE_ID: process.env.FEISHU_TABLE_ID || '',
   // 字段映射
@@ -90,11 +90,15 @@ exports.validateConfig = () => {
   const required = [
     'FEISHU_APP_ID',
     'FEISHU_APP_SECRET',
-    'FEISHU_APP_TOKEN',
     'FEISHU_TABLE_ID'
   ];
 
   const missing = required.filter(key => !process.env[key]);
+  const hasAppToken = !!process.env.FEISHU_APP_TOKEN;
+  const hasBitableToken = !!process.env.FEISHU_BITTABLE_TOKEN;
+  if (!hasAppToken && !hasBitableToken) {
+    missing.push('FEISHU_APP_TOKEN/FEISHU_BITTABLE_TOKEN');
+  }
 
   if (missing.length > 0) {
     console.error('\n❌ 缺少必需的环境变量:');

@@ -579,6 +579,7 @@ async function step4(ctx) {
       const maleDefault = process.env.TEMPLATE_ITEM_ID_MALE || process.env.TB_TEMPLATE_ITEM_ID || process.env.TEMPLATE_ITEM_ID || '991550105366';
       const malePing = process.env.TEMPLATE_ITEM_ID_PING || '921175768835';
       const maleArchivio = process.env.TEMPLATE_ITEM_ID_MALE_ARCHIVIO || '1005271729109';
+      const maleMizuno = '1005536025044';
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
@@ -587,6 +588,8 @@ async function step4(ctx) {
       const maleJackBunny = process.env.TEMPLATE_ITEM_ID_JACK_BUNNY || '999041650653';
       // 女店配置
       const femaleDefault = process.env.TEMPLATE_ITEM_ID_FEMALE || '963409414097';
+      const femalePing = '868813535649';
+      const femaleMizuno = '865656530519';
       const femalePearly = process.env.TEMPLATE_ITEM_ID_FEMALE_PEARLY_GATES || '962546682844';
       const femaleMunsing = process.env.TEMPLATE_ITEM_ID_FEMALE_MUNSINGWEAR || '895577432419';
       const femaleLeCoq = process.env.TEMPLATE_ITEM_ID_FEMALE_LECOQ || '927659846575';
@@ -595,19 +598,25 @@ async function step4(ctx) {
       const femaleJackBunny = process.env.TEMPLATE_ITEM_ID_FEMALE_JACK_BUNNY || '864660841251';
       const femaleArchivio = process.env.TEMPLATE_ITEM_ID_FEMALE_ARCHIVIO || '1005864688464';
 
+      const isPing = brandKey.includes('ping');
+      const isMizuno = brandKey.includes('mizuno') || brandKey.includes('美津浓');
+
       if (store === 'female') {
-      if (brandKey.includes('archivio')) return femaleArchivio;
-      if (brandKey === 'pearly gates') return femalePearly;
-      if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
-      if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
-      if (brandKey.includes('movesport')) return femaleMoveSport;
-      if (brandKey.includes('jackbunny') || brandKey.includes('jack bunny')) return femaleJackBunny;
-      if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
+        if (isPing) return femalePing;
+        if (isMizuno) return femaleMizuno;
+        if (brandKey.includes('archivio')) return femaleArchivio;
+        if (brandKey === 'pearly gates') return femalePearly;
+        if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return femaleMunsing;
+        if (brandKey.includes('le coq') || brandKey.includes('公鸡乐卡克')) return femaleLeCoq;
+        if (brandKey.includes('movesport')) return femaleMoveSport;
+        if (brandKey.includes('jackbunny') || brandKey.includes('jack bunny')) return femaleJackBunny;
+        if (brandKey.includes('master') && brandKey.includes('bunny')) return femaleMasterBunny;
         return femaleDefault;
       }
 
       // 默认男店
-      if (brandKey.includes('ping')) return malePing;
+      if (isPing) return malePing;
+      if (isMizuno) return maleMizuno;
       if (brandKey.includes('archivio')) return maleArchivio;
       if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
@@ -627,6 +636,7 @@ async function step4(ctx) {
     const isFemaleArchivio = store === 'female' && brandKey.includes('archivio');
     const isMalePing = store === 'male' && brandKey.includes('ping');
     const isMaleArchivio = store === 'male' && brandKey.includes('archivio');
+    const isMaleMizuno = store === 'male' && (brandKey.includes('mizuno') || brandKey.includes('美津浓'));
 
     const publishUrl = isFemaleArchivio
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac2c1bswyTpK&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
@@ -634,7 +644,9 @@ async function step4(ctx) {
         ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.384c645eFC51Q0&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
         : isMalePing
           ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
-          : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+          : isMaleMizuno
+            ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.3c3a2c1bovNpCs&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
+            : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${publishUrl}`);
 
     await page.goto(publishUrl, {
