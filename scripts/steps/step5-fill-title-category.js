@@ -120,29 +120,32 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     const candidateCategories = [];
     const brandKey = (productData.brand || '').trim().toLowerCase();
     const isMarmot = brandKey.includes('土拨鼠') || brandKey.includes('marmot');
-    if (isMarmot) {
+    const forceCategory = isMarmot;
+    if (forceCategory) {
       const golfCategories = ['运动服/休闲服装>>高尔夫球服', '高尔夫球服'];
       golfCategories.forEach((category) => {
         if (!candidateCategories.includes(category)) {
           candidateCategories.push(category);
         }
       });
-      logger.info(`  品牌为土拨鼠，优先类目: ${golfCategories.join(' / ')}`);
+      logger.info(`  品牌为土拨鼠，强制类目候选: ${golfCategories.join(' / ')}`);
     }
-    if (productData.category && String(productData.category).trim()) {
+    if (!forceCategory && productData.category && String(productData.category).trim()) {
       const primary = String(productData.category).trim();
       candidateCategories.push(primary);
       logger.info(`  使用飞书品类字段: ${primary}`);
     }
 
-    const detailedType = determine_clothing_type(productData);
-    const fallbackCategory = mapToTaobaoCategory(detailedType);
-    if (!candidateCategories.includes(fallbackCategory)) {
-      candidateCategories.push(fallbackCategory);
-      logger.info(`  备用类目（按标题推断）: ${fallbackCategory}`);
+    if (!forceCategory) {
+      const detailedType = determine_clothing_type(productData);
+      const fallbackCategory = mapToTaobaoCategory(detailedType);
+      if (!candidateCategories.includes(fallbackCategory)) {
+        candidateCategories.push(fallbackCategory);
+        logger.info(`  备用类目（按标题推断）: ${fallbackCategory}`);
+      }
     }
 
-    if (candidateCategories.length === 0) {
+    if (!forceCategory && candidateCategories.length === 0) {
       candidateCategories.push('其他');
       logger.info('  未获取到品类，使用默认类目: 其他');
     }
@@ -254,6 +257,9 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     }
 
     if (!categorySelected) {
+      if (forceCategory) {
+        throw new Error(`土拨鼠强制类目未命中: ${candidateCategories.join(', ')}`);
+      }
       logger.warn(`  ⚠️ 未能匹配候选分类 (${candidateCategories.join(', ')})，尝试选择下拉第一项作为兜底`);
 
       // 兜底：直接按ESC关闭下拉，保持当前值继续（避免误点击导航栏）
