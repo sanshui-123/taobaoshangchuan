@@ -122,13 +122,18 @@ async function fillTitleAndCategory(page, productData, logger = console) {
     const isMarmot = brandKey.includes('土拨鼠') || brandKey.includes('marmot');
     const forceCategory = isMarmot;
     if (forceCategory) {
-      const golfCategories = ['运动服/休闲服装>>高尔夫球服', '高尔夫球服'];
+      const golfCategories = [
+        '运动服/休闲服装>>高尔夫球服',
+        '高尔夫球服',
+        '运动服/休闲服装>>高尔夫服装',
+        '高尔夫服装'
+      ];
       golfCategories.forEach((category) => {
         if (!candidateCategories.includes(category)) {
           candidateCategories.push(category);
         }
       });
-      logger.info(`  品牌为土拨鼠，强制类目候选: ${golfCategories.join(' / ')}`);
+      logger.info(`  品牌为土拨鼠，优先类目候选: ${golfCategories.join(' / ')}`);
     }
     if (!forceCategory && productData.category && String(productData.category).trim()) {
       const primary = String(productData.category).trim();
@@ -258,9 +263,10 @@ async function fillTitleAndCategory(page, productData, logger = console) {
 
     if (!categorySelected) {
       if (forceCategory) {
-        throw new Error(`土拨鼠强制类目未命中: ${candidateCategories.join(', ')}`);
+        logger.warn(`  ⚠️ 土拨鼠高尔夫类目未命中 (${candidateCategories.join(', ')})，保持当前类目继续`);
+      } else {
+        logger.warn(`  ⚠️ 未能匹配候选分类 (${candidateCategories.join(', ')})，尝试选择下拉第一项作为兜底`);
       }
-      logger.warn(`  ⚠️ 未能匹配候选分类 (${candidateCategories.join(', ')})，尝试选择下拉第一项作为兜底`);
 
       // 兜底：直接按ESC关闭下拉，保持当前值继续（避免误点击导航栏）
       try {

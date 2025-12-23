@@ -138,7 +138,7 @@ const step7 = async (ctx) => {
     let skuInput;
     // 特例：高尔夫类目在不同模板下，货号字段可能出现在「类目属性」区域（sell-field-p-*），而不是常规的基础信息输入框
     const categoryPath = await page.locator('.path-name').first().textContent().catch(() => '');
-    const isGolfBallCategory = (categoryPath && categoryPath.includes('高尔夫球服')) || isMoveSportBrand || isMasterBunnyBrand;
+    const isGolfBallCategory = (categoryPath && (categoryPath.includes('高尔夫球服') || categoryPath.includes('高尔夫服装'))) || isMoveSportBrand || isMasterBunnyBrand;
     const isGolfTopCategory = !!(categoryPath && categoryPath.includes('高尔夫上装'));
 
     // 方法1：通过文本定位（适用于span/div/label等）
