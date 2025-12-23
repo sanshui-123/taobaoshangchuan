@@ -118,6 +118,17 @@ async function fillTitleAndCategory(page, productData, logger = console) {
 
     // 优先使用飞书品类字段，缺失或不匹配时退回标题推断
     const candidateCategories = [];
+    const brandKey = (productData.brand || '').trim().toLowerCase();
+    const isMarmot = brandKey.includes('土拨鼠') || brandKey.includes('marmot');
+    if (isMarmot) {
+      const golfCategories = ['运动服/休闲服装>>高尔夫球服', '高尔夫球服'];
+      golfCategories.forEach((category) => {
+        if (!candidateCategories.includes(category)) {
+          candidateCategories.push(category);
+        }
+      });
+      logger.info(`  品牌为土拨鼠，优先类目: ${golfCategories.join(' / ')}`);
+    }
     if (productData.category && String(productData.category).trim()) {
       const primary = String(productData.category).trim();
       candidateCategories.push(primary);

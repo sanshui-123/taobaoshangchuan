@@ -721,6 +721,7 @@ const step4 = async (ctx) => {
       const malePing = '921175768835';
       const maleArchivio = process.env.TEMPLATE_ITEM_ID_MALE_ARCHIVIO || '1005271729109';
       const maleMizuno = '1005536025044';
+      const maleMarmot = '1005442666865';
       const malePearly = process.env.TEMPLATE_ITEM_ID_PEARLY_GATES || '901977908066';
       const maleMunsing = process.env.TEMPLATE_ITEM_ID_MUNSINGWEAR || '997382273033';
       const maleLeCoq = process.env.TEMPLATE_ITEM_ID_LECOQ || '902934521160';
@@ -741,6 +742,7 @@ const step4 = async (ctx) => {
 
       const isPing = brandKey.includes('ping');
       const isMizuno = brandKey.includes('mizuno') || brandKey.includes('美津浓');
+      const isMarmot = brandKey.includes('土拨鼠') || brandKey.includes('marmot');
 
       if (store === 'female') {
         if (isPing) return femalePing;
@@ -758,6 +760,7 @@ const step4 = async (ctx) => {
       // 默认男店
       if (isPing) return malePing;
       if (isMizuno) return maleMizuno;
+      if (isMarmot) return maleMarmot;
       if (brandKey.includes('archivio')) return maleArchivio;
       if (brandKey === 'pearly gates') return malePearly;
       if (brandKey === '万星威munsingwear' || brandKey === 'munsingwear') return maleMunsing;
@@ -783,6 +786,7 @@ const step4 = async (ctx) => {
     const isMalePing = store === 'male' && brandKey.includes('ping');
     const isMaleArchivio = store === 'male' && brandKey.includes('archivio');
     const isMaleMizuno = store === 'male' && (brandKey.includes('mizuno') || brandKey.includes('美津浓'));
+    const isMaleMarmot = store === 'male' && (brandKey.includes('土拨鼠') || brandKey.includes('marmot'));
 
     const directUrl = isFemaleArchivio
       ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac2c1bswyTpK&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
@@ -792,7 +796,9 @@ const step4 = async (ctx) => {
           ? `https://item.upload.taobao.com/sell/v2/publish.htm?itemId=${templateItemId}&fromAIPublish=true`
           : isMaleMizuno
             ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.3c3a2c1bovNpCs&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
-            : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
+            : isMaleMarmot
+              ? `https://item.upload.taobao.com/sell/v2/publish.htm?spm=a21dvs.23580594.0.0.76ac645etYIQTU&copyItem=true&itemId=${templateItemId}&fromAIPublish=true`
+              : `https://item.upload.taobao.com/sell/v2/publish.htm?copyItem=true&itemId=${templateItemId}&fromAIPublish=true`;
     ctx.logger.info(`直达链接: ${directUrl}`);
 
     await page.goto(directUrl, {
