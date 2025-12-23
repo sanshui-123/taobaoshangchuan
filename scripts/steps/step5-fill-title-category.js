@@ -250,6 +250,20 @@ async function fillTitleAndCategory(page, productData, logger = console) {
           await page.getByText(taobaoCategory, { exact: false }).first().click();
         }
         await page.waitForTimeout(500);
+        if (forceCategory) {
+          const keyword = taobaoCategory.split('>>').pop().trim();
+          const matched = await page.waitForFunction((kw) => {
+            const el = document.querySelector('.path-name');
+            return el && el.textContent && el.textContent.includes(kw);
+          }, keyword, { timeout: 1200 }).then(() => true).catch(() => false);
+          if (!matched) {
+            const currentPath = await page.locator('.path-name').first().textContent().catch(() => '');
+            logger.warn(`  ⚠️ 类目未切换到 "${keyword}"（当前: ${currentPath || '未知'}），继续尝试下一项`);
+            await page.keyboard.press('Escape').catch(() => {});
+            await page.waitForTimeout(300);
+            continue;
+          }
+        }
         logger.info('  ✅ 分类选择完成');
         categorySelected = true;
         break;
